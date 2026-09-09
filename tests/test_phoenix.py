@@ -627,6 +627,42 @@ class TestAutomations(IsolatedTest):
         self.assertTrue(out.startswith("!"))
 
 
+class TestPayloadShape(IsolatedTest):
+    """Guard against 'invalid type: sequence, expected a string'
+    (malformed tool schemas reaching OpenRouter)."""
+
+    def test_all_tool_schemas_are_wellformed(self):
+        import json as _json
+        for t in tools.TOOLS:
+            fn = t.get("function", {})
+            self.assertIsInstance(fn.get("description"), str,
+                                  "tool %r description is not a string"
+                                  % fn.get("name"))
+            for pname, pspec in (fn.get("parameters", {})
+                                 .get("properties") or {}).items():
+                pd = pspec.get("description")
+                if pd is not None:
+                    self.assertIsInstance(
+                        pd, str,
+                        "tool %r param %r description is not a string"
+                        % (fn.get("name"), pname))
+        blob = _json.dumps(tools.TOOLS)   # must serialize cleanly
+        self.assertGreater(len(blob), 100)
+
+    def test_validator_catches_tuples(self):
+        bad = [{"type": "function", "function": {
+            "name": "x", "description": ("a", "b"),  # tuple bug
+            "parameters": {"type": "object", "properties": {}}}}]
+        with self.assertRaises(providers.ProviderError):
+            providers._validate_payload({"model": "m", "messages": [],
+                                         "tools": bad})
+        # well-formed payload passes
+        providers._validate_payload({"model": "m",
+                                     "messages": [{"role": "user",
+                                                   "content": "hi"}],
+                                     "tools": tools.TOOLS})
+
+
 class TestMindSkills(IsolatedTest):
     def test_save_and_match(self):
         res = mind.skill_save("book_cheap_flight",

@@ -612,7 +612,7 @@ TOOLS = [
                             "AUTOMATIONS: named macros of steps (tool calls, "
                             "read-only diagnostics like ping/ipconfig, mode "
                             "changes, waits). When the user says 'make an "
-                            "automation that ...' or 'every morning do ...'",
+                            "automation that ...' or 'every morning do ...' "
                             "build steps and save; run with run/list to see "
                             "saved ones; schedule with a daily HH:MM time."),
             "parameters": {
