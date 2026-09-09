@@ -235,6 +235,28 @@ _BROWSERS_PROCS = {"chrome": "chrome.exe", "edge": "msedge.exe",
                    "santa": "santa.exe"}
 
 
+def open_url_in_default_chrome(url):
+    """Open a URL in Chrome WITHOUT pinning a profile - a normal tab in
+    the running instance if Chrome is already up. Chrome is Phoenix's
+    default browser (never the OS default, which may be Edge)."""
+    for key, _disp, exe, _udd in installed_browsers():
+        if key == "chrome" and exe and os.path.isfile(exe):
+            try:
+                flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                subprocess.Popen(
+                    [exe, url], creationflags=flags,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL)
+                return True
+            except OSError:
+                break
+    try:
+        import webbrowser
+        return webbrowser.open(url)
+    except Exception:
+        return False
+
+
 def close_running_browser(browser_key):
     """Politely close the running browser so we can relaunch it pinned to
     a specific profile (Chromium reuses an existing process otherwise and
