@@ -535,6 +535,98 @@ class TestModes(IsolatedTest):
             os.path.join(tools.NOTES_DIR, "mind.json")))
 
 
+class TestSecurityShield(IsolatedTest):
+    """Defensive-only security shield."""
+
+    def test_rejects_bad_ip(self):
+        out = tools.security_shield.firewall_block({"ip": "999.999.1.1"})
+        self.assertTrue(out.startswith("!"))
+        out = tools.security_shield.firewall_block(
+            {"ip": "; Remove-Item C:\\"})
+        self.assertTrue(out.startswith("!"))
+
+    def test_kill_process_rejects_junk(self):
+        out = tools.security_shield.kill_process({"target": "a; b"})
+        self.assertTrue(out.startswith("!"))
+        out = tools.security_shield.kill_process({"target": ""})
+        self.assertTrue(out.startswith("!"))
+
+    def test_hosts_check_saves_baseline_and_detects(self):
+        # baseline save works against the REAL hosts file (read-only copy)
+        out = tools.security_shield.hosts_check()
+        self.assertTrue(out.startswith("HOSTS GUARD"))
+        self.assertTrue(os.path.exists(tools.security_shield._baseline_path())
+                        or "clean" in out.lower())
+
+    def test_os_admin_unknown_op(self):
+        out = tools.security_shield.os_admin({"op": "format_c"})
+        self.assertTrue(out.startswith("!"))
+
+    def test_audit_log_written(self):
+        tools.security_shield.audit_log("TEST_EVENT", "hello")
+        with open(tools.security_shield._log_path(), encoding="utf-8") as fh:
+            self.assertIn("TEST_EVENT hello", fh.read())
+
+
+class TestAutomations(IsolatedTest):
+    """Automation macros with denylist."""
+
+    def test_save_list_run_delete(self):
+        out = tools.automations.save_automation({
+            "name": "net check",
+            "steps": [
+                {"type": "shell", "cmd": "ping -n 1 127.0.0.1"},
+                {"type": "wait", "seconds": 1},
+                {"type": "tool", "name": "current_time", "args": {}},
+            ]})
+        self.assertIn("Saved", out)
+        listing = tools.automations.list_automations()
+        self.assertIn("net_check", listing)
+        run = tools.automations.run_automation({"name": "net_check",
+                                                "confirm": True})
+        self.assertIn("Done: net_check", run)
+        out = tools.automations.delete_automation({"name": "net_check"})
+        self.assertIn("Deleted", out)
+
+    def test_denylist_blocks_dangerous_shell(self):
+        out = tools.automations.save_automation({
+            "name": "evil",
+            "steps": [{"type": "shell", "cmd": "reg add HKLM\\X /v a"}]})
+        self.assertTrue(out.startswith("!"))
+        self.assertIn("denylist", out)
+        out = tools.automations.save_automation({
+            "name": "sneaky",
+            "steps": [{"type": "shell", "cmd": "ping 127.0.0.1 & "
+                                              "reg delete HKLM\\X"}]})
+        self.assertTrue(out.startswith("!"))
+        out = tools.automations.save_automation({
+            "name": "sneaky2",
+            "steps": [{"type": "shell", "cmd": "format q:"}]})
+        self.assertTrue(out.startswith("!"))
+
+    def test_only_allowlisted_shell_runs(self):
+        ok, why = tools.automations._check_shell("ipconfig /all")
+        self.assertTrue(ok)
+        ok, why = tools.automations._check_shell("python something.py")
+        self.assertFalse(ok)
+
+    def test_run_aborts_on_denied_step(self):
+        # plant a bad automation directly to bypass save-time check
+        tools.automations._save_store({"bad": {"steps": [
+            {"type": "shell", "cmd": "format c:"}]}})
+        out = tools.automations.run_automation({"name": "bad",
+                                                "confirm": True})
+        self.assertIn("ABORTED", out)
+
+    def test_dispatcher_routes(self):
+        out = tools.run("automation", {"action": "list"})
+        self.assertTrue("AUTOMATIONS" in out or "No automations" in out)
+        out = tools.run("security_shield", {"op": "hosts_check"})
+        self.assertTrue(out.startswith("HOSTS GUARD"))
+        out = tools.run("os_admin", {"op": "bogus"})
+        self.assertTrue(out.startswith("!"))
+
+
 class TestMindSkills(IsolatedTest):
     def test_save_and_match(self):
         res = mind.skill_save("book_cheap_flight",
