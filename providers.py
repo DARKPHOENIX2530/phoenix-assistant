@@ -170,7 +170,7 @@ def _openai_loop(url, headers, model, label, messages, system, tools,
         # Drop tool-call history so tiny local models don't reject it.
         wire = _api_messages(system, messages, strip_tools=True)
 
-    for _ in range(6):
+    for _ in range(24):
         payload = {"model": model, "messages": wire}
         if tools:
             payload["tools"] = tools

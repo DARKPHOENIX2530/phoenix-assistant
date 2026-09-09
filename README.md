@@ -232,6 +232,21 @@ python webgui_server.py --no-browser    run the server manually, no browser popu
 
 Starting the server twice is safe — it detects an already-running instance and exits.
 
+## Modes
+
+Switch with `/mode <name>`, the HUD top-bar selector, or just say
+"enter dark phoenix mode". `mode` is saved, so it survives restarts.
+
+| Mode | What it does |
+|---|---|
+| `normal` | Standard Phoenix. |
+| `darkphoenix` | **Ghost protocol.** The HUD turns dark violet; entering it immediately purges saved transcripts, the persistent mind file, saved identity nicknames and Phoenix's private browser profile. Auto-save (`/save`) and AI memory/skill writes are blocked while active - nothing you do leaves a trace. `/purge` wipes again on demand. |
+| `voice` | **Full voice.** The HUD collapses into a single floating arc reactor; the mic listens in a loop and replies are spoken. Type (or press any key) to fall back to text. |
+| `god` | **Full tool freedom, zero-cost rule.** Phoenix may chain as many tools as a task needs until it is done - but every single action must cost absolutely nothing (free APIs/tiers/local only). Anything paid is refused. |
+
+Modes can overlap in one conversation ("switch to darkphoenix and open
+gemini in chrome as dragon"): theme/behavior changes apply instantly.
+
 ## Troubleshooting
 
 - **"No API key set"** — run `/setup`, or `/key <provider> <key>`.

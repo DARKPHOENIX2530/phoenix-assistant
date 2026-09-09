@@ -412,6 +412,66 @@ class TestBrowserIdentities(IsolatedTest):
         self.assertEqual(data.get("chrome::Profile 3"), ["dragon"])
 
 
+class TestModes(IsolatedTest):
+    """normal / darkphoenix / voice / god modes."""
+
+    def test_mode_roundtrip_and_persistence(self):
+        bot = assistant.Phoenix(mock_cfg())
+        self.assertEqual(bot.mode(), "normal")
+        self.assertIn("GOD MODE", bot.set_mode("god"))
+        self.assertEqual(bot.mode(), "god")
+        # persisted to disk
+        bot2 = assistant.Phoenix(config.load())
+        self.assertEqual(bot2.mode(), "god")
+        self.assertIn("Mode: normal", bot.set_mode("off"))
+        self.assertIn("Unknown mode", bot.set_mode("bogus"))
+
+    def test_darkphoenix_purges_traces(self):
+        bot = assistant.Phoenix(mock_cfg())
+        tools.memory_put({"text": "secret memory about project x"})
+        sess = os.path.join(tools.NOTES_DIR, "sessions")
+        os.makedirs(sess, exist_ok=True)
+        with open(os.path.join(sess, "chat_old.txt"), "w") as fh:
+            fh.write("you> hello\nphoenix> hi\n")
+        reply = bot.handle("/mode darkphoenix")
+        self.assertIn("DARK PHOENIX", reply)
+        self.assertIn("purge", reply.lower())
+        self.assertFalse(os.path.exists(os.path.join(sess, "chat_old.txt")))
+        self.assertEqual(bot.mode(), "darkphoenix")
+        # /save is refused in ghost mode
+        bot.handle("hello there")
+        self.assertIn("no transcripts", bot.handle("/save"))
+        # AI-triggered persistent writes are blocked
+        self.assertIn("ghost mode", bot.tool_runner("memory_put",
+                                                    {"text": "new fact"}))
+        # leaving ghost mode works
+        self.assertEqual(bot.mode(), "darkphoenix")
+        bot.set_mode("normal")
+        self.assertEqual(bot.mode(), "normal")
+
+    def test_voice_mode_forces_speech(self):
+        bot = assistant.Phoenix(mock_cfg())
+        bot.cfg["settings"]["voice_out"] = False
+        bot.handle("/mode voice")
+        self.assertTrue(bot.cfg["settings"]["voice_out"])
+        self.assertTrue(bot._speak_flag)
+
+    def test_god_mode_prompt_rules(self):
+        bot = assistant.Phoenix(mock_cfg())
+        self.assertNotIn("ABSOLUTELY 0", bot.system_prompt())
+        bot.set_mode("god")
+        sp = bot.system_prompt()
+        self.assertIn("ABSOLUTELY 0", sp)
+        self.assertIn("GOD MODE", sp)
+
+    def test_purge_tool_direct(self):
+        tools.memory_put({"text": "another trace"})
+        out = tools.run("purge_ghost_traces", {})
+        self.assertIn("purge complete", out.lower())
+        self.assertFalse(os.path.exists(
+            os.path.join(tools.NOTES_DIR, "mind.json")))
+
+
 class TestMindSkills(IsolatedTest):
     def test_save_and_match(self):
         res = mind.skill_save("book_cheap_flight",

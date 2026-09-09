@@ -20,6 +20,7 @@ import webbrowser
 import requests
 
 import browser_profiles
+import shutil
 
 NOTES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notes")
 
@@ -886,6 +887,51 @@ def open_url(args):
         opened = False
     return ("Opened %s in your browser." % raw) if opened \
         else ("Could not open a browser window for %s." % raw)
+
+
+def purge_ghost_traces(args=None):
+    """DarkPhoenix/ghost mode: wipe every trace of Phoenix's activity.
+
+    Deletes saved chat transcripts, the persistent mind (memories +
+    skills) and Phoenix's private browser profile - then recreates empty
+    structures so the assistant keeps working. Explicit user notes are
+    respected only when the user said to keep them.
+    """
+    gone = []
+    sess = os.path.join(NOTES_DIR, "sessions")
+    if os.path.isdir(sess):
+        for f in os.listdir(sess):
+            try:
+                os.remove(os.path.join(sess, f))
+                gone.append("sessions/" + f)
+            except OSError:
+                pass
+        try:
+            os.rmdir(sess)
+        except OSError:
+            pass
+    for fname in ("mind.json", "browser_identities.json"):
+        p = os.path.join(NOTES_DIR, fname)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+                gone.append(fname)
+            except OSError:
+                pass
+    prof = os.path.expanduser("~/AppData/Local/PhoenixBrowserProfile")
+    for sub in ("", "_edge", "_chrome"):
+        d = prof + sub
+        if os.path.isdir(d):
+            try:
+                shutil.rmtree(d, ignore_errors=True)
+                gone.append("PhoenixBrowserProfile%s" % sub)
+            except Exception:
+                pass
+    return ("Ghost purge complete. %d trace(s) deleted: %s. This "
+            "conversation lives only in RAM now - /new or closing the "
+            "window erases it. (Auto-save is disabled while ghost mode "
+            "is on.)" % (len(gone), ", ".join(gone) if gone else "nothing "
+                                                      "left to delete"))
 
 
 def save_identity_alias(alias, mention):
@@ -1812,6 +1858,8 @@ def run(name, args):
         return open_url(args)
     if name == "browser_identities":
         return browser_identities_tool(args)
+    if name == "purge_ghost_traces":
+        return purge_ghost_traces(args)
     if name == "open_app":
         return open_app(args)
     if name == "manage_notes":

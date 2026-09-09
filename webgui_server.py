@@ -122,6 +122,7 @@ class Handler(BaseHTTPRequestHandler):
                 "model": (spec or {}).get("model", "?"),
                 "has_key": has_key,
                 "providers": providers,
+                "mode": bot.mode(),
                 **_system_payload(),
             }
             self._send_json(payload)
@@ -155,6 +156,23 @@ class Handler(BaseHTTPRequestHandler):
                     reply = bot.handle("/provider " + name)
                 ok = not reply.startswith("!")
                 self._send_json({"ok": ok, "reply": reply})
+            except Exception as exc:
+                self._send_json({"ok": False, "reply": str(exc)})
+        elif self.path == "/api/mode":
+            data = self._read_body()
+            mode = str(data.get("mode") or "").strip()
+            bot = get_bot()
+            try:
+                with _lock:
+                    reply = bot.handle("/mode " + mode)
+                purge = None
+                if bot.mode() == "darkphoenix" and "purge complete" \
+                        in reply.lower():
+                    purge = ("traces deleted - no logs, no memories, "
+                             "no transcripts")
+                self._send_json({"ok": not reply.startswith("!"),
+                                 "reply": reply, "mode": bot.mode(),
+                                 "purge": purge})
             except Exception as exc:
                 self._send_json({"ok": False, "reply": str(exc)})
         elif self.path == "/api/listen":
