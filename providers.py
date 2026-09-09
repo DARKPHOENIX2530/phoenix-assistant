@@ -163,6 +163,41 @@ def chat(spec, messages, system, tools=None, tool_runner=None):
         raise
 
 
+def _validate_payload(payload):
+    """Fail fast with a LOCAL, readable error if the wire payload is
+    malformed (e.g. a tool description that is a tuple -> JSON array
+    where OpenRouter requires a string)."""
+    for i, t in enumerate(payload.get("tools") or []):
+        fn = (t or {}).get("function") or {}
+        name = fn.get("name", "tool#%d" % i)
+        for field in ("description", "name"):
+            val = fn.get(field)
+            if val is not None and not isinstance(val, str):
+                raise ProviderError(
+                    "Local payload bug: tools[%d] (%s) field %r is %s, "
+                    "expected str. Fix the TOOLS schema in tools.py."
+                    % (i, name, field, type(val).__name__))
+        for pname, pspec in ((fn.get("parameters") or {})
+                             .get("properties") or {}).items():
+            if not isinstance(pspec, dict):
+                raise ProviderError(
+                    "Local payload bug: tools[%d] (%s) parameter %r is %s, "
+                    "expected object."
+                    % (i, name, pname, type(pspec).__name__))
+            pd = pspec.get("description")
+            if pd is not None and not isinstance(pd, str):
+                raise ProviderError(
+                    "Local payload bug: tools[%d] (%s) param %r description "
+                    "is %s, expected str."
+                    % (i, name, pname, type(pd).__name__))
+    for m in payload.get("messages") or []:
+        c = (m or {}).get("content")
+        if c is not None and not isinstance(c, str):
+            raise ProviderError(
+                "Local payload bug: a message 'content' is %s, expected "
+                "str." % type(c).__name__)
+
+
 def _openai_loop(url, headers, model, label, messages, system, tools,
                  tool_runner):
     wire = _api_messages(system, messages, strip_tools=False)
@@ -170,7 +205,14 @@ def _openai_loop(url, headers, model, label, messages, system, tools,
         # Drop tool-call history so tiny local models don't reject it.
         wire = _api_messages(system, messages, strip_tools=True)
 
+    _validate_payload({"model": model, "messages": wire,
+                       "tools": tools or []})
+
     for _ in range(24):
+        payload = {"model": model, "messages": wire}
+        if tools:
+            payload["tools"] = tools
+        resp = _post_json(url, headers, payload)
         payload = {"model": model, "messages": wire}
         if tools:
             payload["tools"] = tools
