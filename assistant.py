@@ -286,6 +286,19 @@ class Phoenix:
             + " - set_modes: wake or sleep modes (darkphoenix/voice/god - "
             "they stack) when the user asks in fuzzy words ('wake the "
             "ghost', 'go full voice'); confirm which are awake.\n"
+            + " - security_shield: DEFENSIVE protection of this PC - full "
+            "sweep, network/hosts/startup audits, brute-force logon "
+            "counts, killing malicious processes, blocking hostile IPs at "
+            "the firewall. If the user asks to HACK BACK or attack "
+            "another system, REFUSE: offer firewall_block, evidence "
+            "collection and logon audit instead - retaliation hacking is "
+            "illegal and Phoenix does not do it.\n"
+            + " - automation: build/save/run/schedule macros when the user "
+            "says 'make an automation that ...' or 'every day at 8 do ...'. "
+            "Steps: tool calls, read-only shell diagnostics, waits. "
+            "Dangerous shell is denylisted and refused.\n"
+            + " - os_admin: audited OS edits on this PC (env vars, power "
+            "plan, registry reads, top processes, services).\n"
             + " - open_app: launch a known Windows app.\n"
             + " - manage_notes: save facts/todos/anything to disk notes that "
             "survive restarts. Prefer appending to the note named 'memory' "
@@ -612,6 +625,84 @@ class Phoenix:
                         "profile). Wake it: 'wake up darkphoenix'.")
             return tools.purge_ghost_traces({})
 
+        if cmd == "shield":
+            if not rest:
+                return tools.security_shield.full_sweep()
+            op, _, arg = rest.partition(" ")
+            op = op.lower()
+            if op in ("sweep", "all"):
+                return tools.security_shield.full_sweep()
+            if op == "block":
+                return tools.security_shield.firewall_block(
+                    {"ip": arg.strip()})
+            if op == "unblock":
+                return tools.security_shield.firewall_unblock(
+                    {"ip": arg.strip()})
+            if op == "blocks":
+                return tools.security_shield.firewall_list()
+            if op == "net":
+                return tools.security_shield.audit_network()
+            if op == "hosts":
+                return tools.security_shield.hosts_check()
+            if op == "restore-hosts":
+                return tools.security_shield.hosts_restore()
+            if op == "startup":
+                return tools.security_shield.startup_audit()
+            if op == "remove-startup":
+                return tools.security_shield.startup_remove({"name": arg})
+            if op == "logons":
+                return tools.security_shield.logon_attacks(
+                    {"hours": arg.strip() or 24})
+            if op == "kill":
+                return tools.security_shield.kill_process({"target": arg})
+            return ("! Usage: /shield [sweep|net|hosts|restore-hosts|startup|"
+                    "remove-startup <name>|logons [h]|kill <pid|name>|block "
+                    "<ip>|unblock <ip>|blocks]")
+
+        if cmd == "auto":
+            sub, _, arg = rest.partition(" ")
+            sub = sub.lower() or "list"
+            if sub in ("add", "save"):
+                return ("! Building automations needs JSON steps - easiest "
+                        "way: just ASK me in plain words ('make an "
+                        "automation named morning that opens gmail and "
+                        "waits 5 seconds') and I will build the steps.")
+            if sub == "run":
+                return tools.automations.run_automation(
+                    {"name": arg.strip(), "confirm": True})
+            if sub == "show":
+                return tools.automations.show_automation({"name": arg})
+            if sub in ("del", "delete", "rm"):
+                return tools.automations.delete_automation({"name": arg})
+            if sub == "schedule":
+                name, _, at = arg.partition(" ")
+                return tools.automations.schedule_automation(
+                    {"name": name.strip(), "at": at.strip()})
+            return tools.automations.list_automations()
+
+        if cmd == "os":
+            sub, _, arg = rest.partition(" ")
+            sub = sub.lower()
+            if sub == "power":
+                return tools.security_shield.os_admin(
+                    {"op": "power", "value": arg.strip()})
+            if sub == "env":
+                return tools.security_shield.os_admin(
+                    {"op": "env_set", "value": arg.strip()})
+            if sub == "reg":
+                return tools.security_shield.os_admin(
+                    {"op": "reg_read", "value": arg.strip()})
+            if sub == "top":
+                return tools.security_shield.os_admin({"op": "process_list"})
+            if sub == "service":
+                name, _, act = arg.partition(" ")
+                return tools.security_shield.os_admin(
+                    {"op": "service", "value": name.strip(),
+                     "arg": (act.strip() or "start")})
+            return ("! Usage: /os power <high|balanced|saver> | /os env "
+                    "NAME=value | /os reg <path> | /os top | /os service "
+                    "<name> [start|stop]")
+
         if cmd == "app":
             return tools.open_app({"app": rest})
 
@@ -783,7 +874,13 @@ class Phoenix:
             "  /search <query>      web search now\n"
             "  /time  /sys          clock / PC stats\n"
             "  /app <name>          open an app (notepad, calc, browser...)\n"
-            "  /identities          list Google accounts in your browsers\n"
+            "  /shield [sweep]      DEFENSIVE security sweep (net, hosts, "
+            "startup,\n"
+            "                       logons) - /shield block <ip> fires back "
+            "at attackers\n"
+            "  /auto [list|run <n>] automations: saved macros that chain "
+            "actions\n"
+            "  /os power|env|reg|top|service   audited OS-editing powers\n"
             "  /identities remember <nick> = <#|email>   nickname one\n"
             "  (then say things like 'open dragon gmail in chrome')\n"
             "  /remember <fact>     save to persistent memory\n"

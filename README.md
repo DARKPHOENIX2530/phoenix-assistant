@@ -259,6 +259,24 @@ Sleep with `sleep <mode>` / `<mode> off`, or send everything down with
 `/mode off`. `/modes` shows what is awake. The HUD top bar has a chip
 per mode (DP / VOX / GOD); clicking wakes or sleeps just that one.
 
+## OS Shield, automations & OS powers
+
+- **`/shield`** - DEFENSIVE security: `sweep` runs everything (suspicious
+  listeners, hosts-file tampering, startup persistence, brute-force
+  logon counts). `/shield block <ip>` blocks a hostile IP at the
+  Windows firewall, `/shield kill <pid|name>` stops a malicious
+  process, `/shield restore-hosts` undoes tampering. Every action is
+  audit-logged to `notes/security_log.txt`. Phoenix defends this PC
+  only - it refuses to hack back (illegal) and says so.
+- **`/auto`** - automations: named macros that chain steps (tool calls,
+  read-only diagnostics like ping/ipconfig, waits). "make an automation
+  named morning that ..." builds one for you. `/auto run <name>`,
+  `/auto schedule <name> 08:00` wires it into Task Scheduler. Dangerous
+  shell commands are hard-denylisted and refused.
+- **`/os`** - audited OS-editing powers: `/os power high`,
+  `/os env NAME=value`, `/os reg <path>`, `/os top`, `/os service
+  <name> start|stop`.
+
 ## Troubleshooting
 ## Troubleshooting
 

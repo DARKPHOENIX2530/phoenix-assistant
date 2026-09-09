@@ -20,6 +20,8 @@ import webbrowser
 import requests
 
 import browser_profiles
+import security_shield
+import automations
 import shutil
 
 NOTES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notes")
@@ -567,6 +569,102 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "security_shield",
+            "description": ("DEFENSIVE security for THIS PC: audit "
+                            "suspicious network listeners/connections, check "
+                            "hosts-file tampering, audit or remove shady "
+                            "startup persistence, count brute-force logon "
+                            "attempts, kill a malicious process, run a full "
+                            "sweep, or BLOCK a hostile IP at the Windows "
+                            "firewall. Phoenix NEVER attacks other systems - "
+                            "if the user asks to hack back, refuse and offer "
+                            "blocking + evidence instead."),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string",
+                           "enum": ["sweep", "audit_network", "hosts_check",
+                                    "hosts_restore", "startup_audit",
+                                    "startup_remove", "logon_attacks",
+                                    "kill_process", "firewall_block",
+                                    "firewall_unblock", "firewall_list"],
+                           "description": "sweep = run everything"},
+                    "ip": {"type": "string", "description": "IPv4 for "
+                           "firewall_block/unblock"},
+                    "name": {"type": "string", "description": "startup "
+                             "entry name for startup_remove"},
+                    "target": {"type": "string", "description": "PID or "
+                               "process name for kill_process"},
+                    "hours": {"type": "integer", "description": "window "
+                              "for logon_attacks (default 24)"},
+                    "note": {"type": "string", "description": "label for "
+                             "the firewall rule"},
+                },
+                "required": ["op"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "automation",
+            "description": ("Create, run, list or schedule Phoenix "
+                            "AUTOMATIONS: named macros of steps (tool calls, "
+                            "read-only diagnostics like ping/ipconfig, mode "
+                            "changes, waits). When the user says 'make an "
+                            "automation that ...' or 'every morning do ...'",
+                            "build steps and save; run with run/list to see "
+                            "saved ones; schedule with a daily HH:MM time."),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string",
+                               "enum": ["add", "run", "list", "show",
+                                        "delete", "schedule"],
+                               "description": "what to do"},
+                    "name": {"type": "string", "description": "automation "
+                             "name"},
+                    "steps": {"type": "array", "items": {"type": "object"},
+                              "description": "for add: [{type:tool,name,args}, "
+                              "{type:shell,cmd}, {type:mode,say}, "
+                              "{type:wait,seconds}]"},
+                    "at": {"type": "string", "description": "HH:MM for "
+                           "schedule"},
+                    "confirm": {"type": "boolean", "description": "confirm "
+                                "running flagged steps"},
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "os_admin",
+            "description": ("Scoped OS-editing powers on THIS PC (every "
+                            "action audit-logged): set a user environment "
+                            "variable, switch the power plan, read a registry "
+                            "key, list top processes, start/stop a service."),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string",
+                           "enum": ["env_set", "power", "reg_read",
+                                    "process_list", "service"],
+                           "description": "which OS action"},
+                    "value": {"type": "string", "description": "NAME=value "
+                              "(env_set), power plan, registry path, service "
+                              "name"},
+                    "arg": {"type": "string", "description": "start|stop "
+                            "for service"},
+                },
+                "required": ["op"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "mind_stats",
             "description": ("Report the mind's footprint: memory count, "
                             "skill count and disk usage of notes/mind.json."),
@@ -994,6 +1092,34 @@ def set_modes_tool(args):
     action = str(args.get("action") or "status").strip().lower()
     mode = str(args.get("mode") or "").strip()
     return "__SET_MODES__:%s:%s" % (action, mode)
+
+
+def security_tool(args):
+    """Route security_shield ops to security_shield implementations."""
+    op = str(args.get("op") or "sweep").strip().lower()
+    if op == "sweep":
+        return security_shield.full_sweep()
+    if op == "audit_network":
+        return security_shield.audit_network()
+    if op == "hosts_check":
+        return security_shield.hosts_check()
+    if op == "hosts_restore":
+        return security_shield.hosts_restore()
+    if op == "startup_audit":
+        return security_shield.startup_audit()
+    if op == "startup_remove":
+        return security_shield.startup_remove(args)
+    if op == "logon_attacks":
+        return security_shield.logon_attacks(args)
+    if op == "kill_process":
+        return security_shield.kill_process(args)
+    if op == "firewall_block":
+        return security_shield.firewall_block(args)
+    if op == "firewall_unblock":
+        return security_shield.firewall_unblock(args)
+    if op == "firewall_list":
+        return security_shield.firewall_list()
+    return "! Unknown shield op %r." % op
 
 
 def browser_identities_tool(args):
@@ -1897,6 +2023,12 @@ def run(name, args):
         return purge_ghost_traces(args)
     if name == "set_modes":
         return set_modes_tool(args)
+    if name == "security_shield":
+        return security_tool(args)
+    if name == "automation":
+        return automations.automation_tool(args)
+    if name == "os_admin":
+        return security_shield.os_admin(args)
     if name == "open_app":
         return open_app(args)
     if name == "manage_notes":
