@@ -1036,7 +1036,8 @@ def purge_ghost_traces(args=None):
             os.rmdir(sess)
         except OSError:
             pass
-    for fname in ("mind.json", "browser_identities.json"):
+    for fname in ("mind.json", "browser_identities.json",
+                  "watchdog_state.json", "security_log.txt"):
         p = os.path.join(NOTES_DIR, fname)
         if os.path.exists(p):
             try:
