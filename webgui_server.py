@@ -122,7 +122,8 @@ class Handler(BaseHTTPRequestHandler):
                 "model": (spec or {}).get("model", "?"),
                 "has_key": has_key,
                 "providers": providers,
-                "mode": bot.mode(),
+                "mode": bot.modes(),   # legacy field: primary/first mode
+                "modes": bot.modes(),  # list of ALL active modes
                 **_system_payload(),
             }
             self._send_json(payload)
@@ -159,19 +160,27 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"ok": False, "reply": str(exc)})
         elif self.path == "/api/mode":
+            """Body: {"mode": "darkphoenix|voice|god|off"} to toggle one
+            mode on, or {"say": "wake up darkphoenix and sleep voice"}
+            for free-form wake/sleep phrases."""
             data = self._read_body()
-            mode = str(data.get("mode") or "").strip()
             bot = get_bot()
             try:
-                with _lock:
-                    reply = bot.handle("/mode " + mode)
+                say = str(data.get("say") or "").strip()
+                if say:
+                    with _lock:
+                        reply = bot.handle(say)
+                else:
+                    mode = str(data.get("mode") or "").strip()
+                    with _lock:
+                        reply = bot.handle("/mode " + mode)
+                active = bot.modes()
                 purge = None
-                if bot.mode() == "darkphoenix" and "purge complete" \
-                        in reply.lower():
+                if "darkphoenix" in active and "purge" in reply.lower():
                     purge = ("traces deleted - no logs, no memories, "
                              "no transcripts")
                 self._send_json({"ok": not reply.startswith("!"),
-                                 "reply": reply, "mode": bot.mode(),
+                                 "reply": reply, "modes": active,
                                  "purge": purge})
             except Exception as exc:
                 self._send_json({"ok": False, "reply": str(exc)})

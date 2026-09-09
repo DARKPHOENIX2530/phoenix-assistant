@@ -232,21 +232,34 @@ python webgui_server.py --no-browser    run the server manually, no browser popu
 
 Starting the server twice is safe — it detects an already-running instance and exits.
 
-## Modes
+## Modes (independent, stackable)
 
-Switch with `/mode <name>`, the HUD top-bar selector, or just say
-"enter dark phoenix mode". `mode` is saved, so it survives restarts.
+Modes are separate flags - wake any of them, alone or together:
 
-| Mode | What it does |
-|---|---|
-| `normal` | Standard Phoenix. |
-| `darkphoenix` | **Ghost protocol.** The HUD turns dark violet; entering it immediately purges saved transcripts, the persistent mind file, saved identity nicknames and Phoenix's private browser profile. Auto-save (`/save`) and AI memory/skill writes are blocked while active - nothing you do leaves a trace. `/purge` wipes again on demand. |
-| `voice` | **Full voice.** The HUD collapses into a single floating arc reactor; the mic listens in a loop and replies are spoken. Type (or press any key) to fall back to text. |
-| `god` | **Full tool freedom, zero-cost rule.** Phoenix may chain as many tools as a task needs until it is done - but every single action must cost absolutely nothing (free APIs/tiers/local only). Anything paid is refused. |
+- **darkphoenix** - ghost protocol: dark-violet HUD; wakes with a full
+  purge of transcripts, the mind file, identity nicknames and Phoenix's
+  browser profile; blocks auto-save and AI memory/skill writes while
+  awake. `/purge` wipes again on demand.
+- **voice** - full voice: reactor-only HUD, looping mic, spoken replies.
+- **god** - full tool freedom, chained until the task is done, with the
+  absolute rule that everything must cost **0** (free tiers only).
 
-Modes can overlap in one conversation ("switch to darkphoenix and open
-gemini in chrome as dragon"): theme/behavior changes apply instantly.
+Wake phrases (work alone or inside a longer sentence):
 
+    phoenix, full voice mode        wake up darkphoenix
+    activate godmode                turn on god mode
+    voice on / godmode off          sleep darkphoenix
+
+Combine in one line - even mixed with a real task:
+
+    wake up darkphoenix and activate godmode
+    activate godmode then open gemini in chrome as dragon
+
+Sleep with `sleep <mode>` / `<mode> off`, or send everything down with
+`/mode off`. `/modes` shows what is awake. The HUD top bar has a chip
+per mode (DP / VOX / GOD); clicking wakes or sleeps just that one.
+
+## Troubleshooting
 ## Troubleshooting
 
 - **"No API key set"** — run `/setup`, or `/key <provider> <key>`.

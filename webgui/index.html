@@ -334,17 +334,23 @@
     background: linear-gradient(180deg, transparent 0%, rgba(154,84,255,.04) 48%, rgba(154,84,255,.09) 50%, rgba(154,84,255,.04) 52%, transparent 100%);
     background-size: 100% 240px;
   }
-  body.mode-god #mode-select { box-shadow: 0 0 12px var(--gold-glow); }
+  body.mode-god .mchip[data-mode="god"] { border-color: var(--gold); }
 
-  /* mode selector in the top bar */
-  #mode-select {
-    background: rgba(255,201,77,.06); color: var(--gold);
-    border: 1px solid var(--panel-brd); border-radius: 6px;
+  /* mode chips in the top bar */
+  #mode-chips { display: flex; gap: 6px; }
+  .mchip {
+    background: rgba(255,201,77,.05); color: var(--text-dim);
+    border: 1px solid rgba(255,201,77,.25); border-radius: 6px;
     font-family: inherit; font-size: 10px; letter-spacing: 1px;
-    padding: 5px 6px; outline: none; cursor: pointer;
+    padding: 5px 9px; outline: none; cursor: pointer; transition: all .15s;
   }
-  #mode-select option { background: #221a08; color: var(--gold); }
-  body.mode-darkphoenix #mode-select option { background: #1a1028; }
+  .mchip:hover { color: var(--gold); border-color: var(--gold); }
+  .mchip.active {
+    color: var(--gold); border-color: var(--gold);
+    background: rgba(255,201,77,.16);
+    box-shadow: 0 0 12px var(--gold-glow); text-shadow: 0 0 8px var(--gold-glow);
+  }
+  body.mode-god .mchip[data-mode="god"] { box-shadow: 0 0 12px var(--gold-glow); }
 
   /* ghost-protocol wipe overlay */
   #ghostflash {
@@ -398,12 +404,11 @@
   <div id="topbar" class="panel corners">
     <div class="logo">PHOENIX<span>//</span>OS</div>
     <div class="tagline">PERSONAL AI ASSISTANT</div>
-    <select id="mode-select" title="Phoenix mode">
-      <option value="normal">◈ NORMAL</option>
-      <option value="darkphoenix">● DARKPHOENIX</option>
-      <option value="voice">◉ FULL VOICE</option>
-      <option value="god">▲ GOD</option>
-    </select>
+    <div id="mode-chips" title="Phoenix modes (click to wake/sleep - they stack)">
+      <button class="mchip" data-mode="darkphoenix" title="Ghost protocol: violet HUD, zero traces">● DP</button>
+      <button class="mchip" data-mode="voice" title="Full voice: reactor-only, always-on mic">◉ VOX</button>
+      <button class="mchip" data-mode="god" title="God: full tools, absolutely free-only">▲ GOD</button>
+    </div>
     <div class="spacer"></div>
     <div id="clock">--:--:--</div>
     <div id="conn-dot"></div>
@@ -582,7 +587,8 @@ async function refreshStatus() {
       const used = 100 - Math.round(100 * s.ram_free_gb / s.ram_total_gb);
       $("bar-ram").style.width = Math.max(4, Math.min(100, used)) + "%";
     }
-    if (s.mode && s.mode !== currentMode) applyMode(s.mode);
+    if (Array.isArray(s.modes) &&
+        (s.modes.join() !== currentModes.join())) applyModes(s.modes);
     // provider dropdown
     const sel = $("provider-select");
     if (sel.dataset.loaded !== "1" && s.providers) {
@@ -610,17 +616,19 @@ $("provider-select").addEventListener("change", async e => {
 refreshStatus();
 setInterval(refreshStatus, 5000);
 
-/* ---------- modes ---------- */
-let currentMode = "normal";
+/* ---------- modes (independent chips; they stack) ---------- */
+let currentModes = [];
 
-function applyMode(mode) {
-  currentMode = mode || "normal";
+function applyModes(modes) {
+  currentModes = modes || [];
   document.body.classList.remove("mode-darkphoenix", "mode-voice", "mode-god");
-  if (currentMode === "darkphoenix") document.body.classList.add("mode-darkphoenix");
-  if (currentMode === "voice") document.body.classList.add("mode-voice");
-  if (currentMode === "god") document.body.classList.add("mode-god");
-  $("mode-select").value = currentMode;
-  voiceWake = (currentMode === "voice");
+  if (currentModes.includes("darkphoenix")) document.body.classList.add("mode-darkphoenix");
+  if (currentModes.includes("voice")) document.body.classList.add("mode-voice");
+  if (currentModes.includes("god")) document.body.classList.add("mode-god");
+  document.querySelectorAll(".mchip").forEach(c => {
+    c.classList.toggle("active", currentModes.includes(c.dataset.mode));
+  });
+  voiceWake = currentModes.includes("voice");
 }
 
 async function setMode(mode) {
@@ -629,6 +637,8 @@ async function setMode(mode) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode: mode }) });
     const d = await r.json();
+    applyModes(d.modes || []);
+    if (d.reply) addMsg(d.reply, "sys");
     if (d.purge) {                       /* darkphoenix: wipe animation */
       const gf = $("ghostflash");
       gf.style.display = "flex";
@@ -637,13 +647,20 @@ async function setMode(mode) {
                      (d.purge || "") + "</div>";
       setTimeout(() => { gf.style.display = "none"; }, 2600);
     }
-    log("MODE ▸ " + mode, "ok");
+    log("MODE ▸ " + (d.modes || []).join("+") || "none", "ok");
   } catch (e) { log("MODE SWITCH FAILED", "warn"); }
-  applyMode(mode);
   refreshStatus();
 }
 
-$("mode-select").addEventListener("change", e => setMode(e.target.value));
+function sendModePhrase(phrase) {        /* free-form: 'wake up x sleep y' */
+  return fetch("/api/mode", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ say: phrase }) });
+}
+
+document.querySelectorAll(".mchip").forEach(chip => {
+  chip.addEventListener("click", () => setMode(chip.dataset.mode));
+});
 
 /* ---------- mic (Phoenix's own listener via the server) ---------- */
 let micActive = false, voiceWake = false;
@@ -683,7 +700,7 @@ $("mic-btn").onclick = micCycle;
 
 /* voice mode: mic cycle restarts itself; typing quietly exits */
 promptEl.addEventListener("keydown", e => {
-  if (currentMode === "voice") voiceWake = false;
+  if (currentModes.includes("voice")) voiceWake = false;
 });
 
 /* ---------- boot sequence ---------- */

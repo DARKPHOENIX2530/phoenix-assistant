@@ -413,18 +413,57 @@ class TestBrowserIdentities(IsolatedTest):
 
 
 class TestModes(IsolatedTest):
-    """normal / darkphoenix / voice / god modes."""
+    """Independent mode flags + wake/sleep phrases."""
 
-    def test_mode_roundtrip_and_persistence(self):
+    def test_wake_sleep_and_persistence(self):
         bot = assistant.Phoenix(mock_cfg())
-        self.assertEqual(bot.mode(), "normal")
-        self.assertIn("GOD MODE", bot.set_mode("god"))
-        self.assertEqual(bot.mode(), "god")
+        self.assertEqual(bot.modes(), [])
+        self.assertIn("GODMODE AWAKE", bot.handle("activate godmode"))
+        self.assertEqual(bot.modes(), ["god"])
         # persisted to disk
         bot2 = assistant.Phoenix(config.load())
-        self.assertEqual(bot2.mode(), "god")
-        self.assertIn("Mode: normal", bot.set_mode("off"))
-        self.assertIn("Unknown mode", bot.set_mode("bogus"))
+        self.assertEqual(bot2.modes(), ["god"])
+        self.assertIn("asleep", bot.handle("sleep god"))
+        self.assertEqual(bot.modes(), [])
+
+    def test_modes_stack_independently(self):
+        bot = assistant.Phoenix(mock_cfg())
+        bot.handle("wake up darkphoenix")
+        bot.handle("activate godmode")
+        self.assertEqual(bot.modes(), ["darkphoenix", "god"])
+        # waking one does NOT sleep the other
+        bot.handle("phoenix, full voice mode")
+        self.assertEqual(bot.modes(), ["darkphoenix", "voice", "god"])
+        # sleep just one
+        bot.handle("sleep darkphoenix")
+        self.assertEqual(bot.modes(), ["voice", "god"])
+        # combo in ONE line
+        bot.handle("sleep god and sleep voice")
+        self.assertEqual(bot.modes(), [])
+
+    def test_wake_phrases_one_line(self):
+        cases = {
+            "wake up darkphoenix": [("wake", "darkphoenix")],
+            "sleep darkphoenix": [("sleep", "darkphoenix")],
+            "activate godmode": [("wake", "god")],
+            "phoenix, full voice mode": [("wake", "voice")],
+            "turn on god mode": [("wake", "god")],
+            "godmode off": [("sleep", "god")],
+            "voice on": [("wake", "voice")],
+            "wake up darkphoenix and sleep voice":
+                [("sleep", "voice"), ("wake", "darkphoenix")],
+            "enter ghost mode": [("wake", "darkphoenix")],
+        }
+        for text, expected in cases.items():
+            actions, leftover = assistant.Phoenix.parse_mode_phrases(text)
+            self.assertEqual(actions, expected,
+                             "phrase %r parsed wrong" % text)
+            self.assertEqual(leftover.strip(" ,.!"), "", text)
+        # sentence with extra instructions keeps the rest
+        actions, leftover = assistant.Phoenix.parse_mode_phrases(
+            "activate godmode then open gemini in chrome as dragon")
+        self.assertEqual(actions, [("wake", "god")])
+        self.assertIn("open gemini", leftover)
 
     def test_darkphoenix_purges_traces(self):
         bot = assistant.Phoenix(mock_cfg())
@@ -433,36 +472,43 @@ class TestModes(IsolatedTest):
         os.makedirs(sess, exist_ok=True)
         with open(os.path.join(sess, "chat_old.txt"), "w") as fh:
             fh.write("you> hello\nphoenix> hi\n")
-        reply = bot.handle("/mode darkphoenix")
-        self.assertIn("DARK PHOENIX", reply)
+        reply = bot.handle("wake up darkphoenix")
+        self.assertIn("DARKPHOENIX AWAKE", reply)
         self.assertIn("purge", reply.lower())
         self.assertFalse(os.path.exists(os.path.join(sess, "chat_old.txt")))
-        self.assertEqual(bot.mode(), "darkphoenix")
+        self.assertIn("darkphoenix", bot.modes())
         # /save is refused in ghost mode
         bot.handle("hello there")
         self.assertIn("no transcripts", bot.handle("/save"))
         # AI-triggered persistent writes are blocked
         self.assertIn("ghost mode", bot.tool_runner("memory_put",
                                                     {"text": "new fact"}))
-        # leaving ghost mode works
-        self.assertEqual(bot.mode(), "darkphoenix")
-        bot.set_mode("normal")
-        self.assertEqual(bot.mode(), "normal")
+        # sleep it back down
+        bot.handle("sleep darkphoenix")
+        self.assertNotIn("darkphoenix", bot.modes())
 
     def test_voice_mode_forces_speech(self):
         bot = assistant.Phoenix(mock_cfg())
         bot.cfg["settings"]["voice_out"] = False
-        bot.handle("/mode voice")
+        bot.handle("phoenix, full voice mode")
         self.assertTrue(bot.cfg["settings"]["voice_out"])
         self.assertTrue(bot._speak_flag)
 
     def test_god_mode_prompt_rules(self):
         bot = assistant.Phoenix(mock_cfg())
         self.assertNotIn("ABSOLUTELY 0", bot.system_prompt())
-        bot.set_mode("god")
+        bot.handle("activate godmode")
         sp = bot.system_prompt()
         self.assertIn("ABSOLUTELY 0", sp)
         self.assertIn("GOD MODE", sp)
+
+    def test_mode_off_sleeps_everything(self):
+        bot = assistant.Phoenix(mock_cfg())
+        bot.handle("wake up darkphoenix")
+        bot.handle("activate godmode")
+        reply = bot.handle("/mode off")
+        self.assertEqual(bot.modes(), [])
+        self.assertIn("All modes asleep", reply)
 
     def test_purge_tool_direct(self):
         tools.memory_put({"text": "another trace"})
