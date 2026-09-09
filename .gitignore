@@ -1,0 +1,17 @@
+# Private runtime data - NEVER commit
+config/
+notes/
+hud_server.log
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS junk
+Thumbs.db
+.DS_Store
+.freebuff/
