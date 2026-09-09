@@ -19,6 +19,22 @@ import ui
 
 PROJECT = os.path.dirname(os.path.abspath(__file__))
 
+MODES = ("normal", "darkphoenix", "voice", "god")
+MODE_INFO = {
+    "normal": "standard Phoenix",
+    "darkphoenix": ("DARK PHOENIX: ghost protocol - the HUD turns dark "
+                    "violet, saved transcripts and the mind file are "
+                    "purged now and auto-save is off; nothing about this "
+                    "session should leave a trace."),
+    "voice": ("FULL VOICE: the HUD becomes a floating arc reactor with "
+              "voice-first input and spoken replies ON."),
+    "god": ("GOD MODE: use your full toolset aggressively and chain as "
+            "many tools as the task needs until it is DONE - but every "
+            "single action must cost the user ABSOLUTELY NOTHING (free "
+            "APIs, free tiers, local resources only; refuse anything "
+            "paid)."),
+}
+
 
 class Phoenix:
     def __init__(self, cfg):
@@ -33,6 +49,40 @@ class Phoenix:
     def active(self):
         name = self.cfg["settings"].get("provider", "mock")
         return name, self.cfg["providers"].get(name)
+
+    def mode(self):
+        m = str(self.cfg["settings"].get("mode") or "normal").lower()
+        return m if m in MODES else "normal"
+
+    def set_mode(self, mode):
+        mode = (mode or "normal").strip().lower()
+        if mode in ("off", "none", "exit", ""):
+            mode = "normal"
+        if mode not in MODES:
+            return "! Unknown mode %r. Modes: %s (or 'off' for normal)." \
+                % (mode, ", ".join(MODES))
+        prev = self.mode()
+        self.cfg["settings"]["mode"] = mode
+        self._save()
+        if prev == "darkphoenix" and mode != "darkphoenix":
+            pass  # traces already purged at entry; nothing to restore
+        if mode == "darkphoenix" and prev != "darkphoenix":
+            try:
+                purge = tools.purge_ghost_traces()
+            except Exception as exc:
+                purge = "! ghost purge failed: %s" % exc
+            return ("DARK PHOENIX MODE ENGAGED. %s" % purge)
+        if mode == "god":
+            return ("GOD MODE ENGAGED. Every action stays 100% free - "
+                    "paid anything is refused, always. Full toolset, "
+                    "chained until the task is done.")
+        if mode == "voice":
+            self.cfg["settings"]["voice_out"] = True
+            self._speak_flag = True
+            return ("FULL VOICE MODE ENGAGED. HUD is reactor-only, mic is "
+                    "live: speak to talk to me. Say 'mode normal' to "
+                    "stand down.")
+        return "Mode: normal."
 
     def _save(self):
         config.save(self.cfg)
@@ -120,6 +170,36 @@ class Phoenix:
             "Never ask for or print the user's API keys. Be mindful that the "
             "user may switch providers between messages.\n"
         )
+        if self.mode() == "god":
+            text += (
+                "\nGOD MODE ACTIVE - the user explicitly authorized full "
+                "tool freedom: chain as many tools as the task needs, "
+                "multi-step and end-to-end, until the task is DONE (web "
+                "searches, opening browsers/identities, typing into sites, "
+                "reading replies, notes, apps - all of it, no asking "
+                "permission between steps). ABSOLUTE RULE: everything must "
+                "cost the user ABSOLUTELY 0 - free tiers, free APIs, local "
+                "resources only. If any step would cost money (paid API, "
+                "subscription, purchase, trial that auto-bills), STOP and "
+                "tell the user - never spend. Never type passwords/OTP "
+                "even here.\n")
+        if self.mode() == "darkphoenix":
+            text += (
+                "\nDARK PHOENIX (ghost protocol) ACTIVE: the user wants NO "
+                "evidence left after this session. Saved transcripts and "
+                "the persistent mind file have already been purged and "
+                "auto-save is disabled. Do NOT write memories, notes, "
+                "transcripts or persistent artifacts (use memory_put / "
+                "manage_notes / skill_save / /save only if the user "
+                "re-asks explicitly); do not leave temp files; close "
+                "browser windows you open when a task ends. Speak plainly "
+                "about what was wiped.\n")
+        if self.mode() == "voice":
+            text += (
+                "\nFULL VOICE MODE: the user is talking, not typing. Keep "
+                "answers SHORT and speakable (2-5 sentences), no lists "
+                "or code walls - describe rather than dump.\n")
+        return text
         mem = tools._read_note_raw("memory")
         if mem.strip():
             text += ("\n[Persistent memory so far - keep it updated with "
@@ -142,6 +222,13 @@ class Phoenix:
         return text
 
     def tool_runner(self, name, args):
+        if self.mode() == "darkphoenix" and name in (
+                "memory_put", "skill_save", "skill_record", "web_login"):
+            return ("(ghost mode: I am not writing memories, skills or "
+                    "browser-profile data. Ask me explicitly to leave "
+                    "ghost mode first if you want that saved.)")
+        if name == "purge_ghost_traces" and self.mode() != "darkphoenix":
+            return ("(purge_ghost_traces only runs in darkphoenix mode.)")
         try:
             out = tools.run(name, args)
         except Exception as exc:
@@ -316,6 +403,16 @@ class Phoenix:
                     "nvidia first:\n  " % spec2.get("model", "?")) \
                 + "\n  ".join(show)
 
+        if cmd == "mode":
+            return self.set_mode(rest)
+
+        if cmd == "purge":
+            if self.mode() != "darkphoenix":
+                return ("! /purge only works in darkphoenix mode (it "
+                        "deletes transcripts, mind and Phoenix's browser "
+                        "profile). Enter it with '/mode darkphoenix'.")
+            return tools.purge_ghost_traces({})
+
         if cmd == "app":
             return tools.open_app({"app": rest})
 
@@ -470,6 +567,10 @@ class Phoenix:
             "  /add-provider <n> <url> <model>   add any OpenAI-compatible\n"
             "                      endpoint (e.g. your own vLLM/LM Studio)\n"
             "  /new                clear conversation memory\n"
+            "  /mode <name>         normal | darkphoenix (ghost, violet HUD, "
+            "zero traces) |\n" 
+            "                       voice (reactor-only, mic always on) | "
+            "god (full tools,\n                       everything must cost 0)\n"
             "\n"
             "  Just talk to me for questions, writing, coding, summaries.\n"
             "  I also act: say things like 'search the web for ...', 'open\n"
@@ -584,6 +685,9 @@ class Phoenix:
                 else "Speaking replies: OFF.")
 
     def _cmd_save(self):
+        if self.mode() == "darkphoenix":
+            return ("! Ghost mode: no transcripts are written. Evidence "
+                    "purge is the whole point.")
         if not self.history:
             return "Nothing to save - the conversation is empty."
         sess_dir = os.path.join(tools.NOTES_DIR, "sessions")
