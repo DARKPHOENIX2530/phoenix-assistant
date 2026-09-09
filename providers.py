@@ -150,8 +150,13 @@ def chat(spec, messages, system, tools=None, tool_runner=None,
     model = spec.get("model", "")
 
     try:
+        try:
+            temperature = float(spec.get("temperature", 0.6))
+        except (TypeError, ValueError):
+            temperature = 0.6
         return _openai_loop(url, headers, model, label, messages, system,
-                            tools, tool_runner, on_event=on_event)
+                            tools, tool_runner, on_event=on_event,
+                            temperature=temperature)
     except ProviderError as exc:
         # Some backends (tiny local models, some free tiers) choke on the
         # tools field or on tool-call history. Retry once, plain text only.
@@ -268,7 +273,7 @@ def _post_stream(url, headers, payload, on_delta):
 
 
 def _openai_loop(url, headers, model, label, messages, system, tools,
-                 tool_runner, on_event=None):
+                 tool_runner, on_event=None, temperature=0.6):
     wire = _api_messages(system, messages, strip_tools=False)
     if tools is None:
         # Drop tool-call history so tiny local models don't reject it.
@@ -278,7 +283,8 @@ def _openai_loop(url, headers, model, label, messages, system, tools,
                        "tools": tools or []})
 
     for _ in range(24):
-        payload = {"model": model, "messages": wire}
+        payload = {"model": model, "messages": wire,
+                   "temperature": temperature}
         if tools:
             payload["tools"] = tools
         if on_event is not None:
