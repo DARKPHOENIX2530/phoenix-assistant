@@ -277,6 +277,19 @@ per mode (DP / VOX / GOD); clicking wakes or sleeps just that one.
   `/os env NAME=value`, `/os reg <path>`, `/os top`, `/os service
   <name> start|stop`.
 
+## Streaming HUD & Watchdog
+
+- **Streaming replies**: HUD messages appear token-by-token as the model
+  generates, with live tool chips ("tool: web_search") while Phoenix
+  works - no more staring at the reactor. Falls back to plain POST
+  automatically if a stream is unavailable.
+- **`/watchdog`** - background guardian (runs inside the HUD server):
+  hourly checks for disk space, battery, and changes in the shield's
+  network/hosts/startup posture. New problems raise a Windows toast +
+  voice alert once each, then stay quiet until something changes.
+  `/watchdog now` checks immediately; `/watchdog interval 30` retunes;
+  `/watchdog off` disarms.
+
 ## Troubleshooting
 ## Troubleshooting
 

@@ -441,13 +441,19 @@ class Phoenix:
     # ------------------------------------------------------------------ #
     # The answer path
     # ------------------------------------------------------------------ #
-    def answer(self, user_text):
+    def answer_stream(self, user_text, on_event=None):
+        """Answer with live progress. on_event(dict) receives:
+             {"type": "token", "text": ...}    - reply text as it streams
+             {"type": "tool_call", "name": ..., "args": ...}
+             {"type": "tool_result", "name": ..., "result": ...}
+             {"type": "error", "text": ...}    - terminal error reply
+           Returns the final reply string (same as answer())."""
         self.history.append({"role": "user", "content": user_text})
         name, spec = self.active()
         try:
             reply = providers.chat(
                 spec, self.history, self.system_prompt(),
-                tools.TOOLS, self.tool_runner)
+                tools.TOOLS, self.tool_runner, on_event=on_event)
         except providers.ProviderError as exc:
             reply = self._failover(exc, name, spec)
             if reply is None:
@@ -456,10 +462,17 @@ class Phoenix:
                 if spec and spec.get("type") != "mock":
                     hint = ("\n(Fix it with /key, /model or /provider, or "
                             "type /provider mock to keep chatting offline.)")
-                return "! %s%s" % (exc, hint)
+                text = "! %s%s" % (exc, hint)
+                if on_event is not None:
+                    on_event({"type": "error", "text": text})
+                return text
         except KeyboardInterrupt:
             self.history.pop()  # user aborted mid-call; forget the half-ask
-            return "(interrupted - say it again, or Ctrl+C at the prompt to quit)"
+            text = ("(interrupted - say it again, or Ctrl+C at the prompt "
+                    "to quit)")
+            if on_event is not None:
+                on_event({"type": "error", "text": text})
+            return text
 
         reply = (reply or "").strip()
         if not reply:
@@ -467,6 +480,9 @@ class Phoenix:
         self.history.append({"role": "assistant", "content": reply})
         self._trim()
         return reply
+
+    def answer(self, user_text):
+        return self.answer_stream(user_text)
 
     # ---- automatic failover ------------------------------------------- #
     _BUSY_MARKS = ("429", "overloaded", "temporarily", "rate limited",
@@ -518,7 +534,7 @@ class Phoenix:
     # ------------------------------------------------------------------ #
     # Entry point used by the REPL
     # ------------------------------------------------------------------ #
-    def handle(self, line):
+    def handle(self, line, on_event=None):
         """Handle one user line. Returns the reply string, or None to quit."""
         line = line.strip()
         if not line:
@@ -537,7 +553,7 @@ class Phoenix:
                     self.speak_reply(reply)
                 return reply
             self.last_kind = "ai"
-            reply = self.answer(line)
+            reply = self.answer_stream(line, on_event=on_event)
             self.speak_reply(reply)
             return reply
         self.last_kind = "cmd"
@@ -679,6 +695,10 @@ class Phoenix:
                 return tools.automations.schedule_automation(
                     {"name": name.strip(), "at": at.strip()})
             return tools.automations.list_automations()
+
+        if cmd == "watchdog":
+            import watchdog
+            return watchdog.watchdog_tool({"arg": rest})
 
         if cmd == "os":
             sub, _, arg = rest.partition(" ")
@@ -881,6 +901,8 @@ class Phoenix:
             "  /auto [list|run <n>] automations: saved macros that chain "
             "actions\n"
             "  /os power|env|reg|top|service   audited OS-editing powers\n"
+            "  /watchdog [on|off|now|interval <m>]  background guardian: "
+            "toast+voice alerts on new problems\n"
             "  /identities remember <nick> = <#|email>   nickname one\n"
             "  (then say things like 'open dragon gmail in chrome')\n"
             "  /remember <fact>     save to persistent memory\n"

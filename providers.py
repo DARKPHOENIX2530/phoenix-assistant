@@ -116,7 +116,8 @@ def _mock_reply(messages):
     return reply
 
 
-def chat(spec, messages, system, tools=None, tool_runner=None):
+def chat(spec, messages, system, tools=None, tool_runner=None,
+         on_event=None):
     """Send messages to the active provider, following tool calls in a loop.
 
     spec        - the provider dict from config (type/base_url/model/api_key)
@@ -150,7 +151,7 @@ def chat(spec, messages, system, tools=None, tool_runner=None):
 
     try:
         return _openai_loop(url, headers, model, label, messages, system,
-                            tools, tool_runner)
+                            tools, tool_runner, on_event=on_event)
     except ProviderError as exc:
         # Some backends (tiny local models, some free tiers) choke on the
         # tools field or on tool-call history. Retry once, plain text only.
@@ -198,8 +199,76 @@ def _validate_payload(payload):
                 "str." % type(c).__name__)
 
 
+def _sse_parse(lines):
+    """Parse OpenAI-style SSE lines -> (content, calls). Lines look like
+    'data: {json}' ending with 'data: [DONE]'."""
+    content_parts = []
+    calls = {}
+    for raw in lines:
+        line = (raw or "").strip()
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except ValueError:
+            continue
+        for choice in chunk.get("choices") or []:
+            delta = choice.get("delta") or {}
+            piece = delta.get("content")
+            if isinstance(piece, str) and piece:
+                content_parts.append(piece)
+            for tc in delta.get("tool_calls") or []:
+                idx = tc.get("index", 0)
+                slot = calls.setdefault(
+                    idx, {"id": "", "type": "function",
+                          "function": {"name": "", "arguments": ""}})
+                if tc.get("id"):
+                    slot["id"] = tc["id"]
+                fn = tc.get("function") or {}
+                if fn.get("name"):
+                    slot["function"]["name"] += fn["name"]
+                if fn.get("arguments"):
+                    slot["function"]["arguments"] += fn["arguments"]
+    ordered = [calls[i] for i in sorted(calls)]
+    return "".join(content_parts), ordered
+
+
+def _post_stream(url, headers, payload, on_delta):
+    """POST with stream=True, feed content deltas to on_delta, return
+    (content, calls) aggregated from the SSE stream."""
+    resp = requests.post(url, headers=headers, json=payload,
+                         timeout=(15, 180), stream=True)
+    if resp.status_code != 200:
+        raise ProviderError(_err_text(resp, "stream"))
+    lines = []
+    try:
+        for raw in resp.iter_lines(decode_unicode=True):
+            if raw:
+                lines.append(raw)
+                if raw.strip().startswith("data:"):
+                    piece = raw.strip()[5:].strip()
+                    if piece and piece != "[DONE]":
+                        try:
+                            chunk = json.loads(piece)
+                            delta = ((chunk.get("choices") or [{}])[0]
+                                     .get("delta") or {})
+                            if delta.get("content") and on_delta:
+                                on_delta(delta["content"])
+                        except ValueError:
+                            pass
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    return _sse_parse(lines)
+
+
 def _openai_loop(url, headers, model, label, messages, system, tools,
-                 tool_runner):
+                 tool_runner, on_event=None):
     wire = _api_messages(system, messages, strip_tools=False)
     if tools is None:
         # Drop tool-call history so tiny local models don't reject it.
@@ -212,24 +281,34 @@ def _openai_loop(url, headers, model, label, messages, system, tools,
         payload = {"model": model, "messages": wire}
         if tools:
             payload["tools"] = tools
-        resp = _post_json(url, headers, payload)
-        payload = {"model": model, "messages": wire}
-        if tools:
-            payload["tools"] = tools
-        resp = _post_json(url, headers, payload)
-        try:
-            data = resp.json()
-        except ValueError:
-            raise ProviderError("Provider sent non-JSON reply: %s" % resp.text[:300])
-        msg = _first_message(data, label)
+        if on_event is not None:
+            # Streaming path: tokens flow to on_delta; tools still work.
+            try:
+                content, calls = _post_stream(
+                    url, headers, payload,
+                    on_delta=lambda text: on_event({"type": "token",
+                                                    "text": text}))
+            except ProviderError:
+                raise
+            msg = {"content": content,
+                   "tool_calls": calls if calls else None}
+        else:
+            resp = _post_json(url, headers, payload)
+            try:
+                data = resp.json()
+            except ValueError:
+                raise ProviderError("Provider sent non-JSON reply: %s"
+                                    % resp.text[:300])
+            msg = _first_message(data, label)
 
         content = _content_text(msg.get("content"))
         calls = msg.get("tool_calls")
 
         if calls and tool_runner and tools:
+            cleaned_calls = _clean_calls(calls)
             wire.append({"role": "assistant", "content": content,
-                         "tool_calls": _clean_calls(calls)})
-            for call in calls:
+                         "tool_calls": cleaned_calls})
+            for call in cleaned_calls:
                 fn = call.get("function", {})
                 name = fn.get("name", "")
                 raw_args = fn.get("arguments") or "{}"
@@ -239,11 +318,17 @@ def _openai_loop(url, headers, model, label, messages, system, tools,
                     parsed = {}
                 if not isinstance(parsed, dict):
                     parsed = {}
+                if on_event is not None:
+                    on_event({"type": "tool_call", "name": name,
+                              "args": parsed})
                 result = tool_runner(name, parsed)
                 if not isinstance(result, str):
                     result = str(result)
                 if len(result) > 2500:
                     result = result[:2500] + "... [truncated]"
+                if on_event is not None:
+                    on_event({"type": "tool_result", "name": name,
+                              "result": result[:200]})
                 wire.append({"role": "tool",
                              "tool_call_id": call.get("id", "call_0"),
                              "content": result})

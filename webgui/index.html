@@ -537,19 +537,98 @@ async function send(text) {
   addMsg(text, "user");
   promptEl.value = "";
   setBusy(true);
-  log("TX ▸ " + text.slice(0, 48));
+  log("TX \u25b8 " + text.slice(0, 48));
+
+  /* live message element for streaming */
+  const live = document.createElement("div");
+  live.className = "msg ai";
+  const who = document.createElement("div"); who.className = "who";
+  who.textContent = "PHOENIX";
+  const body = document.createElement("div"); body.textContent = "";
+  live.appendChild(who); live.appendChild(body);
+  live.style.display = "none";      /* shown at first token */
+  chatEl.appendChild(live);
+  let liveShown = false, gotTokens = false;
+  const showLive = () => { if (!liveShown) { live.style.display = "flex";
+                                           liveShown = true; } };
+  const scroll = () => { chatEl.scrollTop = 1e9; };
+
   try {
-    const r = await fetch("/api/chat", {
+    const r = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: text })
     });
-    const data = await r.json();
-    addMsg(data.reply || "(empty reply)", data.error ? "err" : "ai");
-    log(data.error ? "RX ▸ error" : "RX ▸ reply", data.error ? "warn" : "ok");
+    if (!r.ok || !r.body) throw new Error("no stream");
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", finalReply = null, isErr = false;
+    const toolsSeen = new Set();
+
+    const flushFrame = (frame) => {
+      if (frame.type === "token") {
+        gotTokens = true; showLive();
+        body.textContent += frame.text;
+        scroll();
+      } else if (frame.type === "tool_call") {
+        showLive();
+        const chip = document.createElement("div");
+        chip.className = "who"; chip.style.color = "var(--amber)";
+        chip.textContent = "\u25c7 tool: " + frame.name;
+        live.insertBefore(chip, body);
+        toolsSeen.add(frame.name); scroll();
+        log("TOOL \u25b8 " + frame.name);
+      } else if (frame.type === "tool_result") {
+        log("TOOL \u2713 " + frame.name, "ok");
+      } else if (frame.type === "error") {
+        isErr = true;
+      } else if (frame.type === "done") {
+        finalReply = frame.reply;
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        const m = raw.match(/^data: (.*)$/s);
+        if (m) { try { flushFrame(JSON.parse(m[1])); } catch (e) {} }
+      }
+    }
+
+    if (finalReply !== null) {
+      if (gotTokens || toolsSeen.size) {
+        body.textContent = finalReply;
+        if (isErr) { live.className = "msg err"; who.textContent = "FAULT"; }
+      } else {
+        live.remove();
+        addMsg(finalReply, isErr ? "err" : "ai");
+      }
+    } else if (!liveShown) {
+      live.remove();
+      addMsg("(no reply - core dropped the stream)", "err");
+    }
+    log(isErr ? "RX \u25b8 error" : "RX \u25b8 reply", isErr ? "warn" : "ok");
   } catch (e) {
-    addMsg("! Connection to Phoenix core lost: " + e, "err");
-    log("LINK DOWN", "warn");
+    live.remove();
+    /* fallback: plain POST (older core or stream refused) */
+    try {
+      const r = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text })
+      });
+      const data = await r.json();
+      addMsg(data.reply || "(empty reply)", data.error ? "err" : "ai");
+      log(data.error ? "RX \u25b8 error" : "RX \u25b8 reply",
+          data.error ? "warn" : "ok");
+    } catch (e2) {
+      addMsg("! Connection to Phoenix core lost: " + e2, "err");
+      log("LINK DOWN", "warn");
+    }
   }
   setBusy(false);
   promptEl.focus();

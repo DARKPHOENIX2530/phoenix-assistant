@@ -131,7 +131,39 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "unknown endpoint"}, 404)
 
     def do_POST(self):
-        if self.path == "/api/chat":
+        if self.path == "/api/chat/stream":
+            """Server-Sent-Events chat: streams tokens + tool activity
+            live to the HUD, then a final {type:'done'} frame."""
+            data = self._read_body()
+            text = str(data.get("text") or "").strip()
+            if not text:
+                self._send_json({"error": "empty text"}, 400)
+                return
+            bot = get_bot()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+
+            def emit(frame):
+                try:
+                    self.wfile.write(("data: %s\n\n"
+                                      % json.dumps(frame)).encode("utf-8"))
+                    self.wfile.flush()
+                except (OSError, ValueError):
+                    pass  # client gone; keep draining silently
+
+            try:
+                with _lock:
+                    reply = bot.handle(text, on_event=emit)
+            except Exception as exc:
+                emit({"type": "error", "text": "! Internal error: %s" % exc})
+                reply = "! Internal error: %s" % exc
+            if reply is None:               # /quit typed in the HUD
+                reply = "(Phoenix core says goodbye - close the HUD to exit.)"
+            emit({"type": "done", "reply": reply})
+        elif self.path == "/api/chat":
             data = self._read_body()
             text = str(data.get("text") or "").strip()
             if not text:
@@ -250,9 +282,22 @@ def main():
         import webbrowser
         webbrowser.open(url)
     try:
+        # watchdog: background checks + toast/TTS alerts on new problems
+        import watchdog
+        watchdog.start(interval_minutes=60)
+        print("  watchdog: armed (checks every %d min)"
+              % watchdog.INTERVAL_MINUTES)
+    except Exception as exc:
+        print("  watchdog: disabled (%s)" % exc)
+    try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nHUD server stopped.")
+        try:
+            import watchdog
+            watchdog.stop()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

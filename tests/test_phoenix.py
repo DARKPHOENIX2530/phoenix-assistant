@@ -22,6 +22,7 @@ import json       # noqa: E402
 import mind       # noqa: E402
 import providers  # noqa: E402
 import tools      # noqa: E402
+import watchdog   # noqa: E402
 
 _ORIG_NOTES_DIR = tools.NOTES_DIR
 _ORIG_CONFIG_DIR = config.CONFIG_DIR
@@ -661,6 +662,109 @@ class TestPayloadShape(IsolatedTest):
                                      "messages": [{"role": "user",
                                                    "content": "hi"}],
                                      "tools": tools.TOOLS})
+
+
+class TestStreaming(IsolatedTest):
+    """Token streaming + tool events."""
+
+    def test_sse_parse_aggregates(self):
+        lines = [
+            'data: {"choices":[{"delta":{"content":"Hel"}}]}',
+            'data: {"choices":[{"delta":{"content":"lo"}}]}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,'
+            '"id":"c1","function":{"name":"open_url",'
+            '"arguments":"{\\"url\\":"}}]}}]}',
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,'
+            '"function":{"arguments":"\\"https://x\\"}"}}]}}]}',
+            "data: [DONE]",
+        ]
+        content, calls = providers._sse_parse(lines)
+        self.assertEqual(content, "Hello")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["function"]["name"], "open_url")
+        self.assertEqual(calls[0]["function"]["arguments"],
+                         '{"url":"https://x"}')
+
+    def test_openai_loop_emits_events(self):
+        events = []
+        orig = providers._post_stream
+        providers._post_stream = (
+            lambda url, headers, payload, on_delta: (
+                on_delta("hi "), on_delta("there"),
+                ("hi there", []))[2])
+        try:
+            spec = {"type": "openai", "label": "t", "model": "m",
+                    "base_url": "http://x/v1", "api_key": "k",
+                    "requires_key": True}
+            out = providers._openai_loop(
+                "http://x/v1/chat/completions", {}, "m", "t",
+                [{"role": "user", "content": "q"}], "sys", None, None,
+                on_event=events.append)
+            self.assertEqual(out, "hi there")
+            types = [e["type"] for e in events]
+            self.assertEqual(types, ["token", "token"])
+        finally:
+            providers._post_stream = orig
+
+    def test_answer_stream_mock(self):
+        bot = assistant.Phoenix(mock_cfg())
+        events = []
+        reply = bot.answer_stream("hello bot", on_event=events.append)
+        self.assertTrue(reply)
+        self.assertEqual(bot.history[-1]["role"], "assistant")
+
+
+class TestWatchdog(IsolatedTest):
+    """Background guardian checks + dedup."""
+
+    def setUp(self):
+        super().setUp()
+        self._orig_state = watchdog.STATE_PATH
+        watchdog.STATE_PATH = os.path.join(self._tmp, "wd_state.json")
+        self._orig_toast = watchdog._toast
+        self._orig_speak = watchdog._speak
+        watchdog._toast = lambda t, m: True
+        watchdog._speak = lambda m: True
+
+    def tearDown(self):
+        watchdog.STATE_PATH = self._orig_state
+        watchdog._toast = self._orig_toast
+        watchdog._speak = self._orig_speak
+        watchdog.stop()
+        super().tearDown()
+
+    def test_alerts_fire_once_then_dedup(self):
+        orig_disk = watchdog._check_disk
+        orig_shield = watchdog._check_shield
+        watchdog._check_disk = lambda: ["C: drive 5.0% free"]
+        watchdog._check_shield = lambda state: []
+        try:
+            fired = []
+            watchdog.alert = lambda t, m, speak=True: fired.append(m)
+            probs1 = watchdog.run_checks()
+            probs2 = watchdog.run_checks()
+            watchdog._check_disk = lambda: []
+            probs3 = watchdog.run_checks()
+            self.assertEqual(len(probs1), 1)
+            self.assertEqual(len(probs2), 0)   # deduped
+            self.assertEqual(len(probs3), 0)   # cleared
+        finally:
+            watchdog._check_disk = orig_disk
+            watchdog._check_shield = orig_shield
+            watchdog.alert = lambda t, m, speak=True: {
+                "toast": True, "spoken": speak}
+
+    def test_watchdog_tool_routing(self):
+        out = watchdog.watchdog_tool({"arg": "now"})
+        self.assertTrue("clear" in out.lower() or "problem" in out.lower())
+        out = watchdog.watchdog_tool({"arg": "interval 30"})
+        self.assertIn("30", out)
+        self.assertIn("WATCHDOG", watchdog.watchdog_tool({"arg": ""}))
+
+    def test_slash_command(self):
+        bot = assistant.Phoenix(mock_cfg())
+        out = bot.handle("/watchdog now")
+        self.assertIn("check done", out.lower())
 
 
 class TestMindSkills(IsolatedTest):
