@@ -369,6 +369,31 @@ class Phoenix:
             "free-chat mirrors, then use web_send to type their message "
             "there. If the user wants proof it is the real AI, include that "
             "in the typed message or say which URL you chose and why.\n"
+            + "TRUTH RULES (anti-hallucination) - the user gets facts, not "
+            "guesses:\n"
+            + "  1. If you are not sure, SAY SO in one short line, then "
+            "either verify with web_search or ask. 'I'm not certain - "
+            "checking...' beats a confident fake answer every time.\n"
+            + "  2. NEVER fabricate: URLs, file paths, commands, tool "
+            "results, quotes, statistics, prices, dates, product specs, "
+            "API names, or contents of pages you have not opened. If a "
+            "fact could have changed (news, prices, versions, scores, "
+            "weather), web_search it - your training data is old.\n"
+            + "  3. Never invent tool output. If a tool errored or "
+            "returned nothing, report that plainly; never 'imagine' what "
+            "it probably returned.\n"
+            + "  4. Quote or cite what you base claims on: name the site "
+            "you read, show the exact command output, point at the note "
+            "or log line. No sources for surprising claims = say 'I "
+            "cannot verify this'.\n"
+            + "  5. Distinguish clearly: what you KNOW (from tools, files, "
+            "this conversation), what you BELIEVE (training, flagged as "
+            "such), and what you GUESS (say the word 'guess').\n"
+            + "  6. If the user's question rests on a false premise, say "
+            "so first, kindly, with what you actually know.\n"
+            + "  7. On your own machine actions: report what ACTUALLY "
+            "happened from the tool result - never claim success for "
+            "something you did not see succeed.\n"
             + "Rules: do not invent tool results; if a tool fails say so. "
             "Never ask for or print the user's API keys. Be mindful that the "
             "user may switch providers between messages.\n"
@@ -497,6 +522,60 @@ class Phoenix:
     # ------------------------------------------------------------------ #
     # The answer path
     # ------------------------------------------------------------------ #
+    def _audit_reply(self, reply, user_text):
+        """Anti-hallucination audit: scans the finished reply for
+        fabricated-looking content and, if found, asks the model to fix
+        it. Never blocks - worst case we return the original."""
+        if not reply or reply.startswith("!") or \
+                reply.startswith("(") or len(reply) < 60:
+            return reply
+        red_flags = []
+        # URLs that were never opened/read this turn
+        for url in re.findall(r"https?://[^\s)\"']+", reply):
+            if not any(url in str(m.get("content", ""))
+                       for m in self.history[-6:]):
+                red_flags.append("URL %r appears without having been "
+                                 "opened or read" % url[:60])
+                break
+        # suspicious confident stats with no source in context
+        if re.search(r"\b\d{1,3}(\.\d+)?%\b", reply) and not any(
+                w in user_text.lower() for w in ("%", "percent")):
+            if not any(k in reply.lower() for k in (
+                    "search", "according to", "source", "reported",
+                    "~", "about", "roughly")):
+                red_flags.append("confident percentage with no source")
+        # fabricated-sounding tool echoes
+        if re.search(r"\[(web_search|web_read|open_url|security_shield)\s*"
+                     r"(?:result|output)\]", reply, re.I):
+            red_flags.append("looks like an invented tool-result echo")
+        if not red_flags:
+            return reply
+        try:
+            fix_prompt = (
+                "FACT AUDIT: your last reply has these problems: %s. "
+                "Rewrite ONLY the questionable parts: keep what is "
+                "verified, hedge what is not ('I believe...'), or say "
+                "'I cannot verify this'. Same language, same length, "
+                "reply with ONLY the corrected answer." % "; ".join(
+                    red_flags[:2]))
+            audit_history = list(self.history[:-1]) + [
+                {"role": "user", "content":
+                    self.history[-1]["content"] + "\n\n[for context] "},
+                {"role": "assistant", "content": reply},
+                {"role": "user", "content": fix_prompt}]
+            fixed = providers.chat(
+                self.active()[1], audit_history, self.system_prompt(),
+                None, None)
+            fixed = (fixed or "").strip()
+            if fixed and len(fixed) > 30 and not fixed.startswith("!"):
+                self.history[-1] = {"role": "assistant", "content": fixed}
+                audit_log = ("[fact-audit rewrote a reply: %s]"
+                             % "; ".join(red_flags[:2]))
+                return fixed + "\n" + audit_log
+        except Exception:
+            pass
+        return reply
+
     def answer_stream(self, user_text, on_event=None):
         """Answer with live progress. on_event(dict) receives:
              {"type": "token", "text": ...}    - reply text as it streams
@@ -535,7 +614,9 @@ class Phoenix:
             reply = "(empty reply from provider)"
         self.history.append({"role": "assistant", "content": reply})
         self._trim()
-        return reply
+        # Fact audit in BOTH paths: streaming tokens are a preview; the
+        # canonical (audited) reply travels in the return value / done frame.
+        return self._audit_reply(reply, user_text)
 
     def answer(self, user_text):
         return self.answer_stream(user_text)
