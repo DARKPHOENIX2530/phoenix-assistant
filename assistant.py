@@ -19,21 +19,20 @@ import ui
 
 PROJECT = os.path.dirname(os.path.abspath(__file__))
 
-MODES = ("normal", "darkphoenix", "voice", "god")
-MODE_INFO = {
-    "normal": "standard Phoenix",
-    "darkphoenix": ("DARK PHOENIX: ghost protocol - the HUD turns dark "
-                    "violet, saved transcripts and the mind file are "
-                    "purged now and auto-save is off; nothing about this "
-                    "session should leave a trace."),
-    "voice": ("FULL VOICE: the HUD becomes a floating arc reactor with "
-              "voice-first input and spoken replies ON."),
-    "god": ("GOD MODE: use your full toolset aggressively and chain as "
-            "many tools as the task needs until it is DONE - but every "
-            "single action must cost the user ABSOLUTELY NOTHING (free "
-            "APIs, free tiers, local resources only; refuse anything "
-            "paid)."),
+# Modes are INDEPENDENT FLAGS: darkphoenix, voice and god can be active
+# at the same time ("wake up darkphoenix and activate godmode").
+MODES = ("darkphoenix", "voice", "god")
+
+# How each mode can be named in plain speech.
+_MODE_ALIAS_RE = {
+    "darkphoenix": r"dark\s*phoenix|ghost(?:\s*mode|\s*protocol)?|darkphoenix",
+    "voice": r"full\s*voice|voice\s*mode|voice\s*only|voice",
+    "god": r"god\s*mode|godmode|god",
 }
+_WAKE_VERBS = (r"wake\s*up|wake|activate|turn\s*on|enable|enter|engage|"
+               r"go\s*into|start|bring\s*up|on")
+_SLEEP_VERBS = (r"sleep|turn\s*off|shut\s*down|disable|exit|leave|"
+                r"stand\s*down|deactivate|kill|stop|off")
 
 
 class Phoenix:
@@ -50,39 +49,204 @@ class Phoenix:
         name = self.cfg["settings"].get("provider", "mock")
         return name, self.cfg["providers"].get(name)
 
-    def mode(self):
-        m = str(self.cfg["settings"].get("mode") or "normal").lower()
-        return m if m in MODES else "normal"
+    # ------------------------------------------------------------------ #
+    # Modes: independent flags (darkphoenix / voice / god)
+    # ------------------------------------------------------------------ #
+    def modes(self):
+        """Active modes as a canonical-order list. Reads the legacy single
+        'mode' setting for back-compat."""
+        raw = self.cfg["settings"].get("modes")
+        if not isinstance(raw, list):
+            legacy = str(self.cfg["settings"].get("mode") or "").lower()
+            raw = [legacy] if legacy in MODES else []
+        return [m for m in MODES if m in raw]
 
-    def set_mode(self, mode):
-        mode = (mode or "normal").strip().lower()
-        if mode in ("off", "none", "exit", ""):
-            mode = "normal"
-        if mode not in MODES:
-            return "! Unknown mode %r. Modes: %s (or 'off' for normal)." \
-                % (mode, ", ".join(MODES))
-        prev = self.mode()
-        self.cfg["settings"]["mode"] = mode
+    def _mode_status_line(self):
+        active = self.modes()
+        if not active:
+            return "Modes: none (normal)."
+        return "Modes: " + ", ".join(m.upper() for m in active) + "."
+
+    def wake_mode(self, name):
+        """Turn one mode ON (idempotent). Returns a human reply."""
+        name = self._canon_mode(name)
+        if not name:
+            return "! Unknown mode %r. Modes: %s." % (name, ", ".join(MODES))
+        cur = self.cfg["settings"].setdefault("modes", [])
+        if name in cur:
+            return "%s is already awake." % name.upper()
+        cur.append(name)
         self._save()
-        if prev == "darkphoenix" and mode != "darkphoenix":
-            pass  # traces already purged at entry; nothing to restore
-        if mode == "darkphoenix" and prev != "darkphoenix":
+        if name == "darkphoenix":
             try:
                 purge = tools.purge_ghost_traces()
             except Exception as exc:
                 purge = "! ghost purge failed: %s" % exc
-            return ("DARK PHOENIX MODE ENGAGED. %s" % purge)
-        if mode == "god":
-            return ("GOD MODE ENGAGED. Every action stays 100% free - "
-                    "paid anything is refused, always. Full toolset, "
-                    "chained until the task is done.")
-        if mode == "voice":
+            return "DARKPHOENIX AWAKE - ghost protocol on. %s" % purge
+        if name == "god":
+            return ("GODMODE AWAKE. Every action stays 100% free - paid "
+                    "anything is refused, always. Full toolset, chained "
+                    "until the task is done.")
+        if name == "voice":
             self.cfg["settings"]["voice_out"] = True
             self._speak_flag = True
-            return ("FULL VOICE MODE ENGAGED. HUD is reactor-only, mic is "
-                    "live: speak to talk to me. Say 'mode normal' to "
-                    "stand down.")
-        return "Mode: normal."
+            self._save()
+            return ("FULL VOICE AWAKE. HUD is reactor-only, mic is live: "
+                    "just speak. Say 'sleep voice' (or type) to stand down.")
+        return "%s awake." % name
+
+    def sleep_mode(self, name):
+        """Turn one mode OFF (idempotent)."""
+        name = self._canon_mode(name)
+        if not name:
+            return "! Unknown mode."
+        cur = self.cfg["settings"].setdefault("modes", [])
+        if name not in cur:
+            return "%s is already asleep." % name.upper()
+        cur.remove(name)
+        self._save()
+        if name == "darkphoenix":
+            return ("DARKPHOENIX asleep - ghost protocol off. (Traces were "
+                    "already purged at wake-up; nothing was kept since.)")
+        if name == "god":
+            return "GODMODE asleep - back to normal tool manners."
+        if name == "voice":
+            return "FULL VOICE asleep - text input back to normal."
+        return "%s asleep." % name
+
+    @staticmethod
+    def _canon_mode(name):
+        n = (name or "").strip().lower().replace("-", " ")
+        n = re.sub(r"\bmode\b", "", n).strip()
+        if re.fullmatch(r"dark\s*phoenix|ghost(\s*mode|\s*protocol)?|"
+                        r"darkphoenix", n):
+            return "darkphoenix"
+        if re.fullmatch(r"(full\s*voice|voice\s*mode|voice\s*only|voice)", n):
+            return "voice"
+        if re.fullmatch(r"god\s*mode|godmode|god", n):
+            return "god"
+        return None
+
+    @staticmethod
+    def parse_mode_phrases(line):
+        """Find wake/sleep mode commands inside a normal sentence.
+
+        Returns (actions, leftover_text) where actions is a list of
+        ("wake"|"sleep", mode). Understands:
+          'phoenix, full voice mode'      -> wake voice
+          'wake up darkphoenix'           -> wake darkphoenix
+          'sleep darkphoenix'             -> sleep darkphoenix
+          'activate godmode'              -> wake god
+          ...and several woke combos in ONE line, joined by and/then/+
+        """
+        low = " " + re.sub(r"\s+", " ", (line or "").lower()) + " "
+        actions = []
+        consumed = []
+
+        def alias_pat(alias):
+            return "(?:%s)" % _MODE_ALIAS_RE[alias]
+
+        # verb + mode (+ optional trailing 'mode')
+        verb = r"(?:%s)" % _WAKE_VERBS
+        sverb = r"(?:%s)" % _SLEEP_VERBS
+        pat_wake = re.compile(
+            r"\b(%s)\s*(?:up\s*)?(?:the\s*|to\s*|in\s*)?(%s)(\s*mode)?\b"
+            % (_WAKE_VERBS,
+               "|".join(_MODE_ALIAS_RE[a] for a in MODES)))
+        pat_sleep = re.compile(
+            r"\b(%s)\s*(?:the\s*|down\s*|from\s*|off\s*)?(%s)(\s*mode)?\b"
+            % (_SLEEP_VERBS,
+               "|".join(_MODE_ALIAS_RE[a] for a in MODES)))
+
+        def classify(alias_match):
+            text = alias_match.group(0)
+            if re.search(r"dark\s*phoenix|ghost|darkphoenix", text):
+                return "darkphoenix"
+            if re.search(r"god", text):
+                return "god"
+            return "voice"
+
+        for m in pat_wake.finditer(low):
+            actions.append(("wake", classify(m)))
+            consumed.append(m.span())
+        for m in pat_sleep.finditer(low):
+            # ignore if this span already woke ("on/off" collisions)
+            if any(s <= m.start() < e for s, e in consumed):
+                continue
+            actions.append(("sleep", classify(m)))
+            consumed.append(m.span())
+
+        # reversed forms: 'voice on' / 'godmode off' / 'darkphoenix on'
+        for alias in MODES:
+            pat_on = re.compile(r"\b(%s)(\s*mode)?\s+on\b" % alias_pat(alias))
+            pat_off = re.compile(r"\b(%s)(\s*mode)?\s+off\b"
+                                 % alias_pat(alias))
+            for m in pat_on.finditer(low):
+                if any(s <= m.start() < e for s, e in consumed):
+                    continue
+                actions.append(("wake", alias))
+                consumed.append(m.span())
+            for m in pat_off.finditer(low):
+                if any(s <= m.start() < e for s, e in consumed):
+                    continue
+                actions.append(("sleep", alias))
+                consumed.append(m.span())
+
+        # vocative form: "phoenix, full voice mode" / "phoenix: god mode"
+        voc = re.search(r"\bphoenix\s*[,:!]([^\n]{0,60})", low)
+        if voc:
+            clause = voc.group(1)
+            if not re.search(r"(?:%s)" % _SLEEP_VERBS, clause):
+                for alias in MODES:
+                    if re.search(alias_pat(alias), clause):
+                        actions.append(("wake", alias))
+                        consumed.append(voc.span())
+                        break
+
+        # de-dup, keep order: sleeps first so 'wake up x and sleep y' is
+        # deterministic; wakes last (purge runs after any sleeps)
+        seen, ordered = set(), []
+        for act, mode in actions:
+            if (act, mode) not in seen:
+                seen.add((act, mode))
+                ordered.append((act, mode))
+        ordered.sort(key=lambda a: 0 if a[0] == "sleep" else 1)
+
+        leftover = low
+        if consumed:
+            for s, e in sorted(consumed, reverse=True):
+                leftover = leftover[:s] + " " + leftover[e:]
+            leftover = re.sub(r"\b(and|then|also|\+)\b", " ", leftover)
+            leftover = re.sub(r"\s+", " ", leftover).strip()
+        if leftover.strip(" .!,?") in ("phoenix", ""):
+            leftover = ""
+        return ordered, leftover
+
+    def _apply_mode_actions(self, actions):
+        parts = []
+        for act, mode in actions:
+            out = self.wake_mode(mode) if act == "wake" \
+                else self.sleep_mode(mode)
+            parts.append(out)
+        return parts
+
+    def switch_mode(self, mode):
+        """Explicit /mode command: wake a mode WITHOUT sleeping the others
+        (modes overlap), or 'off'/'normal' to sleep everything."""
+        mode = (mode or "").strip().lower()
+        if mode in ("", "off", "none", "normal", "exit"):
+            changed = [self.sleep_mode(m) for m in self.modes()]
+            self.cfg["settings"]["modes"] = []
+            self.cfg["settings"].pop("mode", None)
+            self._save()
+            return (" ".join(changed) + " All modes asleep. Back to "
+                    "normal.").strip()
+        canon = self._canon_mode(mode)
+        if not canon:
+            return ("! Unknown mode %r. Modes: %s - or 'off' for all off. "
+                    "Wake phrases like 'wake up darkphoenix' also work."
+                    % (mode, ", ".join(MODES)))
+        return self.wake_mode(canon) + " " + self._mode_status_line()
 
     def _save(self):
         config.save(self.cfg)
@@ -170,7 +334,7 @@ class Phoenix:
             "Never ask for or print the user's API keys. Be mindful that the "
             "user may switch providers between messages.\n"
         )
-        if self.mode() == "god":
+        if "god" in self.modes():
             text += (
                 "\nGOD MODE ACTIVE - the user explicitly authorized full "
                 "tool freedom: chain as many tools as the task needs, "
@@ -183,7 +347,7 @@ class Phoenix:
                 "subscription, purchase, trial that auto-bills), STOP and "
                 "tell the user - never spend. Never type passwords/OTP "
                 "even here.\n")
-        if self.mode() == "darkphoenix":
+        if "darkphoenix" in self.modes():
             text += (
                 "\nDARK PHOENIX (ghost protocol) ACTIVE: the user wants NO "
                 "evidence left after this session. Saved transcripts and "
@@ -194,7 +358,7 @@ class Phoenix:
                 "re-asks explicitly); do not leave temp files; close "
                 "browser windows you open when a task ends. Speak plainly "
                 "about what was wiped.\n")
-        if self.mode() == "voice":
+        if "voice" in self.modes():
             text += (
                 "\nFULL VOICE MODE: the user is talking, not typing. Keep "
                 "answers SHORT and speakable (2-5 sentences), no lists "
@@ -222,13 +386,15 @@ class Phoenix:
         return text
 
     def tool_runner(self, name, args):
-        if self.mode() == "darkphoenix" and name in (
+        if "darkphoenix" in self.modes() and name in (
                 "memory_put", "skill_save", "skill_record", "web_login"):
             return ("(ghost mode: I am not writing memories, skills or "
                     "browser-profile data. Ask me explicitly to leave "
                     "ghost mode first if you want that saved.)")
-        if name == "purge_ghost_traces" and self.mode() != "darkphoenix":
-            return ("(purge_ghost_traces only runs in darkphoenix mode.)")
+        if name == "purge_ghost_traces" and \
+                "darkphoenix" not in self.modes():
+            return ("(purge_ghost_traces only runs while darkphoenix is "
+                    "awake.)")
         try:
             out = tools.run(name, args)
         except Exception as exc:
@@ -331,6 +497,18 @@ class Phoenix:
         if not line:
             return ""
         if not line.startswith("/"):
+            # wake/sleep phrases work even inside a longer sentence
+            actions, leftover = self.parse_mode_phrases(line)
+            if actions:
+                parts = self._apply_mode_actions(actions)
+                leftover = (leftover or "").strip(" ,.!?")
+                if leftover:
+                    parts.append(self.answer(leftover))
+                reply = "\n".join(parts)
+                self.last_kind = "cmd"
+                if self._speak_flag:
+                    self.speak_reply(reply)
+                return reply
             self.last_kind = "ai"
             reply = self.answer(line)
             self.speak_reply(reply)
@@ -404,13 +582,20 @@ class Phoenix:
                 + "\n  ".join(show)
 
         if cmd == "mode":
-            return self.set_mode(rest)
+            return self.switch_mode(rest)
+
+        if cmd in ("modes", "modestatus"):
+            active = self.modes()
+            return (self._mode_status_line() + "\n"
+                    "  wake: 'phoenix, <mode> mode' / 'wake up <mode>' / "
+                    "'activate godmode'\n"
+                    "  sleep: 'sleep <mode>' / '<mode> off' / /mode off")
 
         if cmd == "purge":
-            if self.mode() != "darkphoenix":
-                return ("! /purge only works in darkphoenix mode (it "
+            if "darkphoenix" not in self.modes():
+                return ("! /purge only works while DARKPHOENIX is awake (it "
                         "deletes transcripts, mind and Phoenix's browser "
-                        "profile). Enter it with '/mode darkphoenix'.")
+                        "profile). Wake it: 'wake up darkphoenix'.")
             return tools.purge_ghost_traces({})
 
         if cmd == "app":
@@ -567,10 +752,14 @@ class Phoenix:
             "  /add-provider <n> <url> <model>   add any OpenAI-compatible\n"
             "                      endpoint (e.g. your own vLLM/LM Studio)\n"
             "  /new                clear conversation memory\n"
-            "  /mode <name>         normal | darkphoenix (ghost, violet HUD, "
-            "zero traces) |\n" 
-            "                       voice (reactor-only, mic always on) | "
-            "god (full tools,\n                       everything must cost 0)\n"
+            "  /mode <name>         wake a mode: darkphoenix (ghost, violet "
+            "HUD, zero traces),\n"
+            "                       voice (reactor-only, mic always on), god "
+            "(full tools,\n                       everything must cost 0). /mode off sleeps "
+            "all.\n"
+            "  /modes               show which modes are awake\n"
+            "  (say: 'wake up darkphoenix', 'sleep darkphoenix',\n"
+            "   'activate godmode', 'phoenix, full voice mode' - combos OK)\n"
             "\n"
             "  Just talk to me for questions, writing, coding, summaries.\n"
             "  I also act: say things like 'search the web for ...', 'open\n"
@@ -685,7 +874,7 @@ class Phoenix:
                 else "Speaking replies: OFF.")
 
     def _cmd_save(self):
-        if self.mode() == "darkphoenix":
+        if "darkphoenix" in self.modes():
             return ("! Ghost mode: no transcripts are written. Evidence "
                     "purge is the whole point.")
         if not self.history:
