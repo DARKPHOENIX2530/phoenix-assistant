@@ -283,6 +283,9 @@ class Phoenix:
             + " - browser_identities: list the Google accounts signed into "
             "their browsers with saved nicknames, or save_alias to remember "
             "'dragon = chrome Profile 3'.\n"
+            + " - set_modes: wake or sleep modes (darkphoenix/voice/god - "
+            "they stack) when the user asks in fuzzy words ('wake the "
+            "ghost', 'go full voice'); confirm which are awake.\n"
             + " - open_app: launch a known Windows app.\n"
             + " - manage_notes: save facts/todos/anything to disk notes that "
             "survive restarts. Prefer appending to the note named 'memory' "
@@ -386,6 +389,17 @@ class Phoenix:
         return text
 
     def tool_runner(self, name, args):
+        if name == "set_modes":
+            action = str(args.get("action") or "status").strip().lower()
+            mode = str(args.get("mode") or "").strip()
+            if action == "status":
+                return self._mode_status_line()
+            canon = self._canon_mode(mode)
+            if not canon:
+                return "! Unknown mode %r. Modes: %s." \
+                    % (mode, ", ".join(MODES))
+            return self.wake_mode(canon) if action == "wake" \
+                else self.sleep_mode(canon)
         if "darkphoenix" in self.modes() and name in (
                 "memory_put", "skill_save", "skill_record", "web_login"):
             return ("(ghost mode: I am not writing memories, skills or "
