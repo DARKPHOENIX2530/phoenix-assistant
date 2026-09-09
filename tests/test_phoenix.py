@@ -510,6 +510,23 @@ class TestModes(IsolatedTest):
         self.assertEqual(bot.modes(), [])
         self.assertIn("All modes asleep", reply)
 
+    def test_set_modes_tool_routing(self):
+        bot = assistant.Phoenix(mock_cfg())
+        out = bot.tool_runner("set_modes", {"action": "wake",
+                                            "mode": "godmode"})
+        self.assertIn("GODMODE AWAKE", out)
+        self.assertEqual(bot.modes(), ["god"])
+        out = bot.tool_runner("set_modes", {"action": "status"})
+        self.assertIn("GOD", out)
+        out = bot.tool_runner("set_modes", {"action": "sleep",
+                                            "mode": "ghost mode"})
+        # 'ghost mode' canonizes to darkphoenix (not awake -> already asleep)
+        self.assertIn("already asleep", out)
+        self.assertEqual(bot.modes(), ["god"])
+        out = bot.tool_runner("set_modes", {"action": "sleep", "mode": "god"})
+        self.assertIn("asleep", out)
+        self.assertEqual(bot.modes(), [])
+
     def test_purge_tool_direct(self):
         tools.memory_put({"text": "another trace"})
         out = tools.run("purge_ghost_traces", {})

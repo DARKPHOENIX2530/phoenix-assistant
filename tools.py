@@ -539,6 +539,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_modes",
+            "description": ("Wake or sleep Phoenix modes (darkphoenix = "
+                            "ghost/violet/zero-trace, voice = reactor-only "
+                            "spoken HUD, god = full tools with absolute "
+                            "zero-cost rule) when the user asks in fuzzy "
+                            "words like 'wake the ghost' or 'go all-in'. "
+                            "Modes are independent and can stack. Plain "
+                            "phrases like 'wake up darkphoenix' are already "
+                            "handled before you - only use this when needed, "
+                            "and always tell the user which modes are now "
+                            "awake."),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string",
+                               "enum": ["wake", "sleep", "status"],
+                               "description": "wake, sleep, or status (default)"},
+                    "mode": {"type": "string",
+                             "description": "darkphoenix, voice or god "
+                             "(accepts aliases like ghost/godmode)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "mind_stats",
             "description": ("Report the mind's footprint: memory count, "
                             "skill count and disk usage of notes/mind.json."),
@@ -959,6 +987,13 @@ def save_identity_alias(alias, mention):
     return ("Saved: '%s' now means %s profile %r (%s). Try 'open %s gmail "
             "in %s'." % (got, ident["browser_display"], ident["folder"],
                           who, got, ident["browser"]))
+
+
+def set_modes_tool(args):
+    """Bridge so the AI can wake/sleep modes (assistant handles routing)."""
+    action = str(args.get("action") or "status").strip().lower()
+    mode = str(args.get("mode") or "").strip()
+    return "__SET_MODES__:%s:%s" % (action, mode)
 
 
 def browser_identities_tool(args):
@@ -1860,6 +1895,8 @@ def run(name, args):
         return browser_identities_tool(args)
     if name == "purge_ghost_traces":
         return purge_ghost_traces(args)
+    if name == "set_modes":
+        return set_modes_tool(args)
     if name == "open_app":
         return open_app(args)
     if name == "manage_notes":
