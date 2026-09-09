@@ -469,7 +469,7 @@ TOOLS = [
                             "AI ON THAT SITE, wait, and READ ITS REPLY back "
                             "as text. Like web_send but the reply comes "
                             "back to you so you can relay it. Prefer the "
-                            "official domain. Use profile='edge' to reuse "
+                            "official domain. Use profile='chrome' to reuse "
                             "the user's logged-in sessions. Use when the "
                             "user wants another AI's actual answer."),
             "parameters": {
@@ -1007,11 +1007,8 @@ def open_url(args):
     identity_query = str(args.get("identity") or "").strip()
     if browser_key or identity_query:
         return _open_with_identity(raw, browser_key, identity_query)
-    try:
-        opened = webbrowser.open(raw)
-    except webbrowser.Error:
-        opened = False
-    return ("Opened %s in your browser." % raw) if opened \
+    opened = browser_profiles.open_url_in_default_chrome(raw)
+    return ("Opened %s in Chrome." % raw) if opened \
         else ("Could not open a browser window for %s." % raw)
 
 
@@ -1710,9 +1707,10 @@ def web_send(args):
             return msg
         wait = max(wait, 9)   # fresh window needs a beat more to settle
     else:
-        import webbrowser
-        webbrowser.open(url)
-    time.sleep(wait)                       # let the page load + focus input
+        # Chrome is Phoenix's default browser - never the OS default
+        # (which may be Edge).
+        browser_profiles.open_url_in_default_chrome(url)
+        time.sleep(wait)                       # let the page load + focus input
     if not _set_clipboard(text):
         return "! Could not put the message on the clipboard."
 
@@ -1817,7 +1815,7 @@ def web_login(args):
 def web_read(args):
     """Open a chat site, send a message, WAIT, and read the AI's reply back.
 
-    Drives a real Chromium/Edge via Playwright. If profile='edge' (or
+    Drives a real Chromium/Chrome via Playwright. If profile='chrome' (or
     'chrome') is passed, uses the user's own browser profile, so their
     existing logins (Google account for Gemini, etc.) apply. Falls back
     to the bundled Chromium otherwise (fine for sites that need no
@@ -1837,7 +1835,7 @@ def web_read(args):
         wait = max(4, min(120, int(args.get("wait_seconds") or 25)))
     except (TypeError, ValueError):
         wait = 25
-    profile = str(args.get("profile") or "edge").strip().lower()
+    profile = str(args.get("profile") or "chrome").strip().lower()
     headless = bool(args.get("headless", False))
     browser_key = str(args.get("browser") or "").strip().lower()
     identity_query = str(args.get("identity") or "").strip()

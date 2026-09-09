@@ -344,7 +344,7 @@ class Phoenix:
             "as text you can relay. Use when the user wants another site's "
             "AI to actually answer (e.g. 'talk to ChatGPT on its site and "
             "tell me what it says'). Prefer official domains; pass "
-            "profile='edge' to reuse the user's logins, or browser=/"
+            "profile='chrome' to reuse the user's logins, or browser=/"
             "identity= when they named a specific browser/account. Takes "
             "~30-60 s.\n"
             + " - web_login: when a site needs a login the user does not have "
@@ -373,6 +373,39 @@ class Phoenix:
             "Never ask for or print the user's API keys. Be mindful that the "
             "user may switch providers between messages.\n"
         )
+        # Live browser identities: the model sees the REAL accounts on
+        # every message - no tool call needed to know who exists.
+        try:
+            import browser_profiles as _bp
+            idents = _bp.identities()
+        except Exception:
+            idents = []
+        if idents:
+            lines = ["\nBROWSER IDENTITIES (live from this PC) - these are "
+                     "the ONLY Google accounts / browser profiles that "
+                     "exist here:"]
+            for i in idents[:12]:
+                email = i["emails"][0] if i["emails"] else "(not signed in)"
+                alias = (" aka %s" % "/".join(i["aliases"])) \
+                    if i["aliases"] else ""
+                lines.append("  %s profile %r = %s (%s)%s"
+                             % (i["browser_display"], i["folder"],
+                                i["profile_name"], email, alias))
+            if len(idents) > 12:
+                lines.append("  ...and %d more (browser_identities tool)"
+                             % (len(idents) - 12))
+            lines.append(
+                "DEFAULT BROWSER IS CHROME - the user's OS default may be "
+                "Edge but Phoenix NEVER drifts to Edge; only open Edge (or "
+                "Santa) when the user names it. When the user names ANY "
+                "account, person, or nickname ('dragon', 'my work gmail', "
+                "'sukuna'), match it against the list above and pass "
+                "browser= + identity= to open_url/web_send/web_read. If "
+                "they say just 'gmail'/'gemini' with no account, use "
+                "chrome + the Default profile. If a mention matches "
+                "nothing, list the closest matches and ask ONE short "
+                "question - never guess a different account.")
+            text += "\n".join(lines) + "\n"
         if "god" in self.modes():
             text += (
                 "\nGOD MODE ACTIVE - the user explicitly authorized full "
