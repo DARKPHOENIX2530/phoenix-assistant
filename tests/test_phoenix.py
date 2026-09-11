@@ -62,7 +62,7 @@ class TestConfig(IsolatedTest):
         for name in ("gemini", "groq", "openrouter", "github", "cerebras",
                      "ollama", "mock"):
             self.assertIn(name, cfg["providers"])
-        self.assertEqual(cfg["settings"]["provider"], "gemini")
+        self.assertIn(cfg["settings"]["provider"], ("gemini", "freellmapi"))
         self.assertTrue(cfg["providers"]["gemini"]["requires_key"])
         self.assertFalse(cfg["providers"]["mock"]["requires_key"])
 

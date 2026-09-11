@@ -122,8 +122,7 @@ class Handler(BaseHTTPRequestHandler):
                 "model": (spec or {}).get("model", "?"),
                 "has_key": has_key,
                 "providers": providers,
-                "mode": bot.modes(),   # legacy field: primary/first mode
-                "modes": bot.modes(),  # list of ALL active modes
+                "modes": bot.modes(),
                 **_system_payload(),
             }
             self._send_json(payload)
@@ -143,8 +142,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
+            self.send_header("Connection", "close")
             self.end_headers()
+            self.close_connection = True
 
             def emit(frame):
                 try:
@@ -180,6 +180,21 @@ class Handler(BaseHTTPRequestHandler):
             if reply is None:               # /quit typed in the HUD
                 reply = "(Phoenix core says goodbye - close the HUD to exit.)"
             self._send_json({"reply": reply, "error": reply.startswith("!")})
+        elif self.path == "/api/mode":
+            """Toggle a mode on/off: {"mode": "darkphoenix"}"""
+            data = self._read_body()
+            mode = str(data.get("mode") or "").strip().lower()
+            if not mode:
+                self._send_json({"error": "missing mode"}, 400)
+                return
+            bot = get_bot()
+            try:
+                with _lock:
+                    reply = bot.switch_mode(mode)
+                self._send_json({"ok": True, "reply": reply,
+                                 "modes": bot.modes()})
+            except Exception as exc:
+                self._send_json({"ok": False, "reply": str(exc)})
         elif self.path == "/api/provider":
             data = self._read_body()
             name = str(data.get("name") or "").strip()
@@ -189,31 +204,6 @@ class Handler(BaseHTTPRequestHandler):
                     reply = bot.handle("/provider " + name)
                 ok = not reply.startswith("!")
                 self._send_json({"ok": ok, "reply": reply})
-            except Exception as exc:
-                self._send_json({"ok": False, "reply": str(exc)})
-        elif self.path == "/api/mode":
-            """Body: {"mode": "darkphoenix|voice|god|off"} to toggle one
-            mode on, or {"say": "wake up darkphoenix and sleep voice"}
-            for free-form wake/sleep phrases."""
-            data = self._read_body()
-            bot = get_bot()
-            try:
-                say = str(data.get("say") or "").strip()
-                if say:
-                    with _lock:
-                        reply = bot.handle(say)
-                else:
-                    mode = str(data.get("mode") or "").strip()
-                    with _lock:
-                        reply = bot.handle("/mode " + mode)
-                active = bot.modes()
-                purge = None
-                if "darkphoenix" in active and "purge" in reply.lower():
-                    purge = ("traces deleted - no logs, no memories, "
-                             "no transcripts")
-                self._send_json({"ok": not reply.startswith("!"),
-                                 "reply": reply, "modes": active,
-                                 "purge": purge})
             except Exception as exc:
                 self._send_json({"ok": False, "reply": str(exc)})
         elif self.path == "/api/listen":
@@ -240,6 +230,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "text": "",
                                  "error": "Didn't catch anything - try "
                                           "again, a bit closer to the mic."})
+        elif self.path == "/api/speak":
+            """Speak text aloud: {"text": "..."}"""
+            data = self._read_body()
+            text = str(data.get("text") or "").strip()
+            if not text:
+                self._send_json({"error": "empty text"}, 400)
+                return
+            import voice as _voice
+            try:
+                ok = _voice.speak(text)
+                self._send_json({"ok": ok, "spoke": ok})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)})
         else:
             self._send_json({"error": "unknown endpoint"}, 404)
 
@@ -265,14 +268,17 @@ def main():
     ap.add_argument("--no-browser", action="store_true",
                     help="do not open the browser automatically "
                          "(useful for autostart)")
+    ap.add_argument("--port", type=int, default=PORT,
+                    help="port to listen on (default %d)" % PORT)
     args = ap.parse_args()
 
-    if _hud_already_running(PORT):
-        print("Phoenix HUD is already running at http://%s:%s" % (HOST, PORT))
+    port = args.port
+    if _hud_already_running(port):
+        print("Phoenix HUD is already running at http://%s:%s" % (HOST, port))
         return
 
-    srv = Server((HOST, PORT), Handler)
-    url = "http://%s:%s" % (HOST, PORT)
+    srv = Server((HOST, port), Handler)
+    url = "http://%s:%s" % (HOST, port)
     print("=" * 60)
     print("  PHOENIX HUD")
     print("  " + url + "   <- open this in your browser")
@@ -282,22 +288,9 @@ def main():
         import webbrowser
         webbrowser.open(url)
     try:
-        # watchdog: background checks + toast/TTS alerts on new problems
-        import watchdog
-        watchdog.start(interval_minutes=60)
-        print("  watchdog: armed (checks every %d min)"
-              % watchdog.INTERVAL_MINUTES)
-    except Exception as exc:
-        print("  watchdog: disabled (%s)" % exc)
-    try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nHUD server stopped.")
-        try:
-            import watchdog
-            watchdog.stop()
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":

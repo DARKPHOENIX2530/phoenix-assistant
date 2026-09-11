@@ -671,6 +671,57 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document",
+            "description": "Read text from a local document (.txt, .md, .py, .pdf). Extracts all text and returns it so you can analyze it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute or relative path to the file"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "background_watch",
+            "description": "Start a background thread to watch a directory for new or modified files. You will be alerted via a new memory/note.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Path to watch"},
+                    "interval_seconds": {"type": "integer", "description": "Seconds between checks (default 5)"}
+                },
+                "required": ["directory"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_github",
+            "description": "Run Git and GitHub (gh) commands in the current workspace. Use this to commit, push, pull, view status, read issues, or create PRs. e.g., 'git status', 'git commit -m ...', 'gh issue list'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The exact git or gh command to run (e.g., 'git status', 'gh pr list')"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "freellmapi_models",
+            "description": ("List all models available through FreeLLMAPI, the local LLM router running at http://localhost:31415. Returns the full list grouped by provider family (Gemini, Kimi, DeepSeek, GLM, MiniMax, etc.) with counts, plus highlights of the most interesting models. Call this when the user asks what models are available, or wants to pick a specific FreeLLMAPI model."),
+            "parameters": {"type": "object", "properties": {}},
+        }
+    }
 ]
 
 _APPS = {
@@ -2072,4 +2123,212 @@ def run(name, args):
         return web_read(args)
     if name == "web_login":
         return web_login(args)
+    if name == "read_document":
+        return read_document_tool(args)
+    if name == "background_watch":
+        return background_watch_tool(args)
+    if name == "git_github":
+        return git_github_tool(args)
+    if name == "freellmapi_models":
+        return freellmapi_models_tool(args)
+    if name == "freellmapi_set_model":
+        return freellmapi_set_model(args)
     raise ValueError("Unknown tool: %s" % name)
+
+
+def read_document_tool(args):
+    path = args.get("path")
+    if not path:
+        return "No path provided."
+    import os
+    if not os.path.exists(path):
+        return f"File not found: {path}"
+    
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".pdf":
+        try:
+            import fitz
+            doc = fitz.open(path)
+            text = chr(10).join(page.get_text() for page in doc)
+            return f"--- {os.path.basename(path)} ---\n{text}"
+        except ImportError:
+            return "PyMuPDF (fitz) is not installed. Please run: pip install PyMuPDF"
+        except Exception as e:
+            return f"Error reading PDF: {e}"
+    else:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                return f"--- {os.path.basename(path)} ---\n{f.read()}"
+        except Exception as e:
+            return f"Error reading file: {e}"
+
+def background_watch_tool(args):
+    directory = args.get("directory")
+    interval = args.get("interval_seconds", 5)
+    import os
+    if not directory or not os.path.isdir(directory):
+        return f"Invalid directory to watch: {directory}"
+
+    import threading
+    import time
+    
+    def watch_loop(target_dir, delay):
+        try:
+            initial = set(os.listdir(target_dir))
+            while True:
+                time.sleep(delay)
+                current = set(os.listdir(target_dir))
+                new_files = current - initial
+                if new_files:
+                    msg = f"Watch Alert: New file(s) detected in {target_dir}: {', '.join(new_files)}"
+                    manage_notes({"action": "append", "name": "memory", "content": msg})
+                    initial = current
+        except Exception:
+            pass
+
+    t = threading.Thread(target=watch_loop, args=(directory, interval), daemon=True)
+    t.start()
+    return f"Started watching {directory} in the background. Check your memory for alerts!"
+
+def git_github_tool(args):
+    command = args.get("command", "")
+    if not command:
+        return "No command provided."
+    import subprocess
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        output = result.stdout + "\n" + result.stderr
+        if not output.strip():
+            output = "Command executed successfully with no output."
+        return f"Exit code: {result.returncode}\nOutput:\n{output}"
+    except Exception as e:
+        return f"Failed to run command: {e}"
+
+
+def freellmapi_models_tool(args):
+    """List models available through FreeLLMAPI (the local LLM router).
+
+    Returns the full model list with counts, plus highlights the most
+    interesting free models across providers (Gemini, Kimi, DeepSeek, GLM,
+    MiniMax, etc.).
+    """
+    import config as _cfg
+    import requests as _rq
+    cfg = _cfg.load()
+    spec = cfg["providers"].get("freellmapi")
+    if not spec:
+        return "FreeLLMAPI provider not configured."
+    key = spec.get("api_key", "")
+    if not key:
+        return ("FreeLLMAPI has no API key set. Add it with: /key freellmapi "
+                "<key>")
+    url = spec.get("base_url", "").rstrip("/") + "/models"
+    try:
+        resp = _rq.get(url, headers={"Authorization": "Bearer " + key},
+                       timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        return "Could not reach FreeLLMAPI: %s" % exc
+
+    models = data.get("data", [])
+    if not models:
+        return ("FreeLLMAPI is reachable but returned no models. The router may "
+                "need backend provider keys configured - open "
+                "http://localhost:31415/keys in your browser and add at least "
+                "one free provider key (Google, Groq, etc.).")
+
+    total = len(models)
+    lines = ["FreeLLMAPI - %d models available via http://localhost:31415/v1:\n" % total]
+
+    # Group by provider family for readability.
+    by_provider = {}
+    for m in models:
+        mid = m.get("id", "")
+        provider = mid.split("/")[0] if "/" in mid else "builtin"
+        by_provider.setdefault(provider, []).append(mid)
+
+    lines.append("\nProvider families (%d):" % len(by_provider))
+    for prov in sorted(by_provider, key=lambda p: -len(by_provider[p])):
+        count = len(by_provider[prov])
+        sample = by_provider[prov][:3]
+        more = " ..." if count > 3 else ""
+        lines.append("  %s (%d): %s%s" % (prov, count, ", ".join(sample), more))
+
+    # Highlight the ones worth knowing about.
+    gemini_models = sorted(set(by_provider.get("gemini", []) + by_provider.get("google", [])))
+    highlights = [mid for mid in gemini_models
+                 if any(k in mid.lower() for k in ("flash", "pro", "ultra"))]
+    highlights = highlights[:8]
+    if highlights:
+        lines.append("\nGemini family:\n  " + "\n  ".join(highlights))
+
+    kimi = by_provider.get("kimi", [])
+    if kimi:
+        lines.append("\nKimi family:\n  " + "\n  ".join(sorted(kimi)[:8]))
+
+    deepseek = by_provider.get("deepseek", [])
+    if deepseek:
+        lines.append("\nDeepSeek family:\n  " + "\n  ".join(sorted(deepseek)[:8]))
+
+    glm = by_provider.get("glm", [])
+    if glm:
+        lines.append("\nGLM family:\n  " + "\n  ".join(sorted(glm)[:8]))
+
+    minimax = by_provider.get("minimax", [])
+    if minimax:
+        lines.append("\nMiniMax family:\n  " + "\n  ".join(sorted(minimax)[:8]))
+
+    # Built-in router models.
+    builtin = by_provider.get("builtin", [])
+    if builtin:
+        lines.append("\nRouter-builtin models:\n  " + "\n  ".join(sorted(builtin)))
+
+    lines.append(
+        "\nSwitch model with: /model <model-id>\n"
+        "  e.g. /model gemini-3.6-flash\n"
+        "  e.g. /model kimi-k3\n"
+        "  e.g. /model deepseek-v4-pro\n"
+        "  e.g. /model auto (router picks the best available)\n"
+        "\n"
+        "The 'auto' model routes through whichever backend key you added in\n"
+        "the FreeLLMAPI dashboard. Add keys at http://localhost:31415/keys.")
+
+    return "\n".join(lines)
+
+
+def freellmapi_set_model(args):
+    """Switch the active FreeLLMAPI model (used by /model when provider is freellmapi)."""
+    wanted = str(args.get("model") or "").strip()
+    if not wanted:
+        return "! No model name given."
+    import config as _cfg
+    cfg = _cfg.load()
+    spec = cfg["providers"].get("freellmapi")
+    if not spec:
+        return "! FreeLLMAPI provider not configured."
+
+    # Validate the model exists by checking the live list.
+    key = spec.get("api_key", "")
+    url = spec.get("base_url", "").rstrip("/") + "/models"
+    try:
+        import requests as _rq2
+        resp = _rq2.get(url, headers={"Authorization": "Bearer " + key}, timeout=20)
+        resp.raise_for_status()
+        known = {m["id"] for m in resp.json().get("data", [])}
+    except Exception:
+        known = set()
+
+    if wanted != "auto" and wanted not in known and known:
+        # fuzzy match: try substring on known ids.
+        matches = [m for m in known if wanted.lower() in m.lower()]
+        if len(matches) == 1:
+            wanted = matches[0]
+        elif matches:
+            return ("! Did you mean one of these? " + ", ".join(matches[:5]))
+        return ("! Model %r not found in FreeLLMAPI. Run /freellmapi to see "
+                "available models." % wanted)
+
+    spec["model"] = wanted
+    _cfg.save(cfg)
+    return ('FreeLLMAPI model set to %r. Say something to test it.' % wanted)
