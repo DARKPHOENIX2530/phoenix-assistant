@@ -309,35 +309,8 @@
   #boot .reactor .core { inset: 60px; }
   #boot .bootline { font-size: 11px; letter-spacing: 3px; color: var(--gold); }
   #boot .sub { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; }
-
-  /* ================= modes ================= */
-  /* DARKPHOENIX: the whole HUD bleeds dark violet */
-  body.mode-darkphoenix {
-    --gold: #b98aff; --gold-dim: #4d3570; --gold-glow: rgba(154,84,255,.55);
-    --amber: #d46bff; --bg: #07040f;
-    --panel: rgba(18, 10, 32, .78); --panel-brd: rgba(154,84,255,.30);
-    --text: #e9defc; --text-dim: #7d6fa0;
-    --user-bubble: rgba(154,84,255,.10); --ai-bubble: rgba(154,84,255,.05);
-    --green: #8f7dff;
-  }
-  body.mode-darkphoenix .hexgrid {
-    background-image:
-      radial-gradient(circle at 25% 25%, rgba(154,84,255,.07) 0%, transparent 40%),
-      radial-gradient(circle at 80% 80%, rgba(154,84,255,.06) 0%, transparent 40%);
-  }
-  body.mode-darkphoenix .hexgrid::before {
-    background-image:
-      linear-gradient(rgba(154,84,255,.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(154,84,255,.05) 1px, transparent 1px);
-  }
-  body.mode-darkphoenix #scan {
-    background: linear-gradient(180deg, transparent 0%, rgba(154,84,255,.04) 48%, rgba(154,84,255,.09) 50%, rgba(154,84,255,.04) 52%, transparent 100%);
-    background-size: 100% 240px;
-  }
-  body.mode-god .mchip[data-mode="god"] { border-color: var(--gold); }
-
-  /* mode chips in the top bar */
-  #mode-chips { display: flex; gap: 6px; }
+  /* mode toggle chips */
+  #mode-chips { display: flex; gap: 6px; margin-left: 10px; }
   .mchip {
     background: rgba(255,201,77,.05); color: var(--text-dim);
     border: 1px solid rgba(255,201,77,.25); border-radius: 6px;
@@ -349,39 +322,6 @@
     color: var(--gold); border-color: var(--gold);
     background: rgba(255,201,77,.16);
     box-shadow: 0 0 12px var(--gold-glow); text-shadow: 0 0 8px var(--gold-glow);
-  }
-  body.mode-god .mchip[data-mode="god"] { box-shadow: 0 0 12px var(--gold-glow); }
-
-  /* ghost-protocol wipe overlay */
-  #ghostflash {
-    position: fixed; inset: 0; z-index: 30; background: #07040f;
-    display: none; flex-direction: column; align-items: center;
-    justify-content: center; gap: 14px;
-  }
-  #ghostflash .gl {
-    font-size: 13px; letter-spacing: 6px; color: var(--gold);
-    text-transform: uppercase; text-shadow: 0 0 18px var(--gold-glow);
-  }
-
-  /* FULL VOICE: reactor-only HUD */
-  body.mode-voice #topbar, body.mode-voice #right,
-  body.mode-voice #chat-panel { display: none; }
-  body.mode-voice #app {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 1fr auto;
-    grid-template-areas: "left" "input";
-  }
-  body.mode-voice #left { align-items: center; justify-content: center; }
-  body.mode-voice #reactor-panel {
-    background: none; border: none; box-shadow: none; backdrop-filter: none;
-  }
-  body.mode-voice .reactor { width: 300px; height: 300px; }
-  body.mode-voice .reactor .core { inset: 96px; }
-  body.mode-voice #reactor-state { font-size: 13px; letter-spacing: 6px; margin-top: 12px; }
-  body.mode-voice #input-box .icmd, body.mode-voice #send-btn { display: none; }
-  body.mode-voice #mic-btn {
-    width: 60px; height: 60px; font-size: 24px;
-    border-color: var(--gold); box-shadow: 0 0 24px var(--gold-glow);
   }
 </style>
 </head>
@@ -404,10 +344,10 @@
   <div id="topbar" class="panel corners">
     <div class="logo">PHOENIX<span>//</span>OS</div>
     <div class="tagline">PERSONAL AI ASSISTANT</div>
-    <div id="mode-chips" title="Phoenix modes (click to wake/sleep - they stack)">
-      <button class="mchip" data-mode="darkphoenix" title="Ghost protocol: violet HUD, zero traces">● DP</button>
-      <button class="mchip" data-mode="voice" title="Full voice: reactor-only, always-on mic">◉ VOX</button>
-      <button class="mchip" data-mode="god" title="God: full tools, absolutely free-only">▲ GOD</button>
+    <div id="mode-chips">
+      <button class="mchip" data-mode="darkphoenix" title="Ghost protocol: violet HUD, zero traces">&#9679; DP</button>
+      <button class="mchip" data-mode="voice" title="Full voice: spoken replies, always-on mic">&#9673; VOX</button>
+      <button class="mchip" data-mode="god" title="God mode: full tools, free-only">&#9650; GOD</button>
     </div>
     <div class="spacer"></div>
     <div id="clock">--:--:--</div>
@@ -441,10 +381,6 @@
       <button class="btn" data-cmd="/sys">▣ &nbsp;System report</button>
       <button class="btn" data-cmd="/time">◔ &nbsp;Local time</button>
       <button class="btn" data-cmd="/voice">🔊 &nbsp;Toggle voice out</button>
-      <button class="btn" data-cmd="/mode darkphoenix">● &nbsp;DarkPhoenix (ghost)</button>
-      <button class="btn" data-cmd="/mode voice">◉ &nbsp;Full voice mode</button>
-      <button class="btn" data-cmd="/mode god">▲ &nbsp;God mode (free-only)</button>
-      <button class="btn" data-cmd="/mode normal">◇ &nbsp;Normal mode</button>
       <button class="btn" data-cmd="/save">💾 &nbsp;Save transcript</button>
       <button class="btn" data-cmd="/help">☰ &nbsp;All commands</button>
     </div>
@@ -554,11 +490,15 @@ async function send(text) {
   const scroll = () => { chatEl.scrollTop = 1e9; };
 
   try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 1500);
     const r = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text })
+      body: JSON.stringify({ text: text }),
+      signal: ac.signal
     });
+    clearTimeout(timer);
     if (!r.ok || !r.body) throw new Error("no stream");
     const reader = r.body.getReader();
     const dec = new TextDecoder();
@@ -666,8 +606,7 @@ async function refreshStatus() {
       const used = 100 - Math.round(100 * s.ram_free_gb / s.ram_total_gb);
       $("bar-ram").style.width = Math.max(4, Math.min(100, used)) + "%";
     }
-    if (Array.isArray(s.modes) &&
-        (s.modes.join() !== currentModes.join())) applyModes(s.modes);
+    if (Array.isArray(s.modes)) syncModeChips(s.modes);
     // provider dropdown
     const sel = $("provider-select");
     if (sel.dataset.loaded !== "1" && s.providers) {
@@ -695,54 +634,32 @@ $("provider-select").addEventListener("change", async e => {
 refreshStatus();
 setInterval(refreshStatus, 5000);
 
-/* ---------- modes (independent chips; they stack) ---------- */
-let currentModes = [];
-
-function applyModes(modes) {
-  currentModes = modes || [];
-  document.body.classList.remove("mode-darkphoenix", "mode-voice", "mode-god");
-  if (currentModes.includes("darkphoenix")) document.body.classList.add("mode-darkphoenix");
-  if (currentModes.includes("voice")) document.body.classList.add("mode-voice");
-  if (currentModes.includes("god")) document.body.classList.add("mode-god");
+/* ---------- mode toggle chips ---------- */
+function syncModeChips(modes) {
   document.querySelectorAll(".mchip").forEach(c => {
-    c.classList.toggle("active", currentModes.includes(c.dataset.mode));
+    c.classList.toggle("active", (modes || []).includes(c.dataset.mode));
   });
-  voiceWake = currentModes.includes("voice");
-}
-
-async function setMode(mode) {
-  try {
-    const r = await fetch("/api/mode", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: mode }) });
-    const d = await r.json();
-    applyModes(d.modes || []);
-    if (d.reply) addMsg(d.reply, "sys");
-    if (d.purge) {                       /* darkphoenix: wipe animation */
-      const gf = $("ghostflash");
-      gf.style.display = "flex";
-      gf.innerHTML = '<div class="gl">GHOST PROTOCOL</div>' +
-                     '<div class="gl" style="font-size:9px;letter-spacing:3px">' +
-                     (d.purge || "") + "</div>";
-      setTimeout(() => { gf.style.display = "none"; }, 2600);
-    }
-    log("MODE ▸ " + (d.modes || []).join("+") || "none", "ok");
-  } catch (e) { log("MODE SWITCH FAILED", "warn"); }
-  refreshStatus();
-}
-
-function sendModePhrase(phrase) {        /* free-form: 'wake up x sleep y' */
-  return fetch("/api/mode", { method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ say: phrase }) });
 }
 
 document.querySelectorAll(".mchip").forEach(chip => {
-  chip.addEventListener("click", () => setMode(chip.dataset.mode));
+  chip.addEventListener("click", async () => {
+    const mode = chip.dataset.mode;
+    chip.classList.toggle("active");
+    try {
+      const r = await fetch("/api/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: mode })
+      });
+      const d = await r.json();
+      if (d.modes) syncModeChips(d.modes);
+      if (d.reply) { addMsg(d.reply, "sys"); log("MODE \u25b8 " + (d.modes || []).join("+") || "none", "ok"); }
+    } catch (e) { log("MODE SWITCH FAILED", "warn"); chip.classList.toggle("active"); }
+  });
 });
 
 /* ---------- mic (Phoenix's own listener via the server) ---------- */
-let micActive = false, voiceWake = false;
+let micActive = false;
 
 async function micCycle() {
   if (micActive || busy) return;
@@ -772,15 +689,9 @@ async function micCycle() {
   $("mic-btn").classList.remove("listening");
   if (!busy) $("reactor-state").textContent = "standby";
   promptEl.focus();
-  if (voiceWake) setTimeout(micCycle, 800);   /* full voice: always-on mic */
 }
 
 $("mic-btn").onclick = micCycle;
-
-/* voice mode: mic cycle restarts itself; typing quietly exits */
-promptEl.addEventListener("keydown", e => {
-  if (currentModes.includes("voice")) voiceWake = false;
-});
 
 /* ---------- boot sequence ---------- */
 const bootSteps = [
@@ -800,7 +711,6 @@ const bootTimer = setInterval(() => {
     setTimeout(() => $("boot").remove(), 700);
     log("HUD online", "ok");
     promptEl.focus();
-    refreshStatus();     /* syncs mode (and theme) from the core */
   }
 }, 420);
 </script>

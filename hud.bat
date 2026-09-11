@@ -25,5 +25,12 @@ if errorlevel 1 (
     python -m pip install --quiet requests
 )
 
+rem Document reading dependency (PyMuPDF).
+python -c "import fitz" >nul 2>nul
+if errorlevel 1 (
+    echo [phoenix] Installing PyMuPDF (Documents)...
+    python -m pip install --quiet PyMuPDF
+)
+
 python webgui_server.py
 pause

@@ -67,6 +67,14 @@ DEFAULT_PROVIDERS = {
         "api_key": "",
         "requires_key": False,
     },
+    "freellmapi": {
+        "type": "openai",
+        "label": "FreeLLMAPI (local router - unlimited free models)",
+        "model": "auto",
+        "base_url": "http://127.0.0.1:31415/v1",
+        "api_key": "",
+        "requires_key": True,
+    },
     "mock": {
         "type": "mock",
         "label": "Mock (offline demo, no internet needed)",
@@ -78,7 +86,7 @@ DEFAULT_PROVIDERS = {
 }
 
 DEFAULT_SETTINGS = {
-    "provider": "gemini",   # active provider name
+    "provider": "freellmapi",   # active provider name (FreeLLMAPI local router)
     "max_history": 16,      # how many past turns are sent to the model
     "voice_in": False,      # listen through the microphone after a blank line
     "voice_out": False,     # speak replies with text-to-speech

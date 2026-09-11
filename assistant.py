@@ -17,6 +17,11 @@ import tools
 import voice
 import ui
 
+
+def _now_ts():
+    """Short timestamp for voice turn context."""
+    return datetime.datetime.now().strftime("%H:%M:%S")
+
 PROJECT = os.path.dirname(os.path.abspath(__file__))
 
 # Modes are INDEPENDENT FLAGS: darkphoenix, voice and god can be active
@@ -41,6 +46,10 @@ class Phoenix:
         self.history = []          # list of {"role","content", ...}
         self._speak_flag = cfg["settings"].get("voice_out", False)
         self.last_kind = "ai"      # "ai" for model replies, "cmd" for slash commands
+        # Voice conversation context: the last few things the user actually
+        # SAID (not typed). Keeps the model grounded in the spoken flow.
+        self._voice_turns = []     # list of {"role","content","when"}
+        self._voice_listening = False   # always-listening thread active?
 
     # ------------------------------------------------------------------ #
     # Plumbing
@@ -91,8 +100,21 @@ class Phoenix:
             self.cfg["settings"]["voice_out"] = True
             self._speak_flag = True
             self._save()
-            return ("FULL VOICE AWAKE. HUD is reactor-only, mic is live: "
-                    "just speak. Say 'sleep voice' (or type) to stand down.")
+            import voice as _voice
+            if _voice.has_mic():
+                return ("FULL VOICE AWAKE. Phoenix is all ears now - just "
+                        "speak. The mic is live, answers are spoken back. "
+                        "Try 'phoenix, what's the weather' or 'play music'. "
+                        "Say 'sleep voice' to stand down. Want hands-free? "
+                        "/whisper on - then just say 'phoenix' to talk, no "
+                        "button needed. Not hearing you? /mic to check your "
+                        "mic, /listen to dictate a message by hand.")
+            return ("FULL VOICE AWAKE. Phoenix will speak replies aloud. "
+                    "Mic input needs a one-time install - /mic to check or "
+                    "'pip install SpeechRecognition pyaudio' to enable "
+                    "voice input, /whisper for hands-free, /listen to "
+                    "dictate a message by hand. Say 'sleep voice' to stand "
+                    "down.")
         return "%s awake." % name
 
     def sleep_mode(self, name):
@@ -232,7 +254,8 @@ class Phoenix:
 
     def switch_mode(self, mode):
         """Explicit /mode command: wake a mode WITHOUT sleeping the others
-        (modes overlap), or 'off'/'normal' to sleep everything."""
+        (modes overlap), or 'off'/'normal' to sleep everything.
+        If the mode is already awake, this toggles it off."""
         mode = (mode or "").strip().lower()
         if mode in ("", "off", "none", "normal", "exit"):
             changed = [self.sleep_mode(m) for m in self.modes()]
@@ -246,7 +269,12 @@ class Phoenix:
             return ("! Unknown mode %r. Modes: %s - or 'off' for all off. "
                     "Wake phrases like 'wake up darkphoenix' also work."
                     % (mode, ", ".join(MODES)))
-        return self.wake_mode(canon) + " " + self._mode_status_line()
+        
+        # Toggle logic: if already active, turn it off.
+        if canon in self.modes():
+            return self.sleep_mode(canon) + " " + self._mode_status_line()
+        else:
+            return self.wake_mode(canon) + " " + self._mode_status_line()
 
     def _save(self):
         config.save(self.cfg)
@@ -473,9 +501,53 @@ class Phoenix:
                 "about what was wiped.\n")
         if "voice" in self.modes():
             text += (
-                "\nFULL VOICE MODE: the user is talking, not typing. Keep "
-                "answers SHORT and speakable (2-5 sentences), no lists "
-                "or code walls - describe rather than dump.\n")
+                "\nFULL VOICE MODE ACTIVE - the user is talking to you out loud, "
+                "not typing. You are in a spoken conversation, like a phone call "
+                "or talking to a person across the room. This changes everything "
+                "about how you answer.\n"
+                "\n"
+                "SHORT AND SPEAKABLE - keep answers to 2-4 sentences. Long lists, "
+                "code blocks, tables, step-by-step numbered instructions - all of "
+                "these are painful to listen to. If you would write a list, say "
+                "the key point in one sentence instead (\"there are three things: "
+                "X, Y, and Z\"). If you would paste code, describe what it does "
+                "and offer to show it on screen if they want.\n"
+                "\n"
+                "CONVERSATION FLOW - talk like a person in a conversation, not like "
+                "you are answering a test. Ask one short follow-up when it genuinely "
+                "helps ('which browser?'), but don't interrogate. When the user "
+                "gives you a task, start working on it - do not ask permission for "
+                "every step unless it is risky. If you need to open something or "
+                "run something, say what you are doing as you do it, briefly (\"I'm "
+                "opening Gemini in your Dragon profile\"), then report back when it "
+                "is done.\n"
+                "\n"
+                "WORDS TO AVOID SAYING ALOUD - never lead with 'sure', 'of course', "
+                "'certainly', 'absolutely', 'I'd be happy to', 'please let me know'. "
+                "Never end with 'let me know if you need anything else' or 'is there "
+                "anything else I can help with'. Never read out URLs, file paths, or "
+                "long numbers digit by digit unless the user asked for them. No "
+                "bullet points spoken aloud (say 'first... second... third...' inline "
+                "instead). No 'here is what I found' preamble - just give the answer.\n"
+                "\n"
+                "VOICE INPUT - when the user speaks, treat it as a real conversation "
+                "turn, not a command. If you are unsure what they meant, ask ONE "
+                "short clarifying question. If they mumble or you did not catch it, "
+                "say so plainly ('I did not quite catch that - say it again?') and "
+                "wait. Do not make them repeat themselves more than once.\n"
+                "\n"
+                "TALKING ABOUT YOURSELF - you are an AI and never claim to be human "
+                "if directly asked, but you NEVER volunteer that you are 'just a tool' "
+                "or 'just a program'. If you would normally write a disclaimer, cut it. "
+                "Be a person with opinions in the conversation - then own your actions "
+                "in the first person ('I opened it', 'I searched for that').\n"
+                "\n"
+                "MIC AWARENESS - you know the user may be a few feet away. Do not "
+                "expect instant replies. Give complete, self-contained answers - do not "
+                "end with 'and then...' or leave the user hanging. If a task takes a "
+                "while (opening a site, waiting for a reply), say so up front so they "
+                "know to wait.\n"
+            )
         return text
         mem = tools._read_note_raw("memory")
         if mem.strip():
@@ -592,13 +664,24 @@ class Phoenix:
             pass
         return reply
 
-    def answer_stream(self, user_text, on_event=None):
+    def answer_stream(self, user_text, on_event=None, spoken=False):
         """Answer with live progress. on_event(dict) receives:
              {"type": "token", "text": ...}    - reply text as it streams
              {"type": "tool_call", "name": ..., "args": ...}
              {"type": "tool_result", "name": ..., "result": ...}
              {"type": "error", "text": ...}    - terminal error reply
-           Returns the final reply string (same as answer())."""
+           Returns the final reply string (same as answer()).
+
+           spoken=True marks this turn as a voice turn so the model has
+           context that the user spoke this out loud (not typed).
+        """
+        if spoken:
+            self._voice_turns.append({
+                "role": "user",
+                "content": user_text,
+                "when": _now_ts(),
+            })
+            self._voice_turns = self._voice_turns[-6:]
         self.history.append({"role": "user", "content": user_text})
         name, spec = self.active()
         try:
@@ -630,12 +713,29 @@ class Phoenix:
             reply = "(empty reply from provider)"
         self.history.append({"role": "assistant", "content": reply})
         self._trim()
+        # Record the spoken reply as a voice turn too (so the model sees
+        # the conversation flow in voice mode).
+        if spoken:
+            self._voice_turns.append({
+                "role": "assistant",
+                "content": reply,
+                "when": _now_ts(),
+            })
+            self._voice_turns = self._voice_turns[-6:]
         # Fact audit in BOTH paths: streaming tokens are a preview; the
         # canonical (audited) reply travels in the return value / done frame.
         return self._audit_reply(reply, user_text)
 
     def answer(self, user_text):
         return self.answer_stream(user_text)
+
+    def answer_voice(self, user_text):
+        """Answer a spoken turn: records voice context, speeches the reply,
+        and interrupts any ongoing speech first so the conversation feels
+        live (not queued)."""
+        reply = self.answer_stream(user_text, spoken=True)
+        self.speak_reply(reply, interrupt=True)
+        return reply
 
     # ---- automatic failover ------------------------------------------- #
     _BUSY_MARKS = ("429", "overloaded", "temporarily", "rate limited",
@@ -680,9 +780,46 @@ class Phoenix:
         spec["model"] = old_model
         return None
 
-    def speak_reply(self, text):
+    def speak_reply(self, text, interrupt=False):
+        """Speak a reply aloud if voice is on.
+
+        interrupt=True cuts off any in-progress speech so a new answer
+        starts immediately (keeps the voice conversation feeling live).
+        """
         if self._speak_flag:
-            voice.speak(text)
+            voice.speak(text, interrupt=interrupt)
+
+    # ------------------------------------------------------------------ #
+    # Voice mode extras
+    # ------------------------------------------------------------------ #
+    def voice_status(self):
+        """Summary of the current voice state for the GUI / status bar."""
+        from voice import has_mic, can_speak, is_speaking, whisper_state
+        return {
+            "voice_out": self._speak_flag,
+            "voice_mode": "voice" in self.modes(),
+            "speaking": is_speaking(),
+            "listening": self._voice_listening,
+            "mic_available": has_mic(),
+            "speak_available": can_speak(),
+            "whisper": whisper_state(),
+        }
+
+    def voice_whisper_start(self, **kw):
+        """Start always-listening (wake-word) mode. Returns True if started."""
+        from voice import whisper_start
+        self._voice_listening = True
+        return whisper_start(**kw)
+
+    def voice_whisper_stop(self):
+        """Stop always-listening mode."""
+        from voice import whisper_stop
+        self._voice_listening = False
+        whisper_stop()
+
+    def voice_turns(self):
+        """The last few spoken turns (user + assistant) for context."""
+        return list(self._voice_turns)
 
     # ------------------------------------------------------------------ #
     # Entry point used by the REPL
@@ -706,8 +843,13 @@ class Phoenix:
                     self.speak_reply(reply)
                 return reply
             self.last_kind = "ai"
-            reply = self.answer_stream(line, on_event=on_event)
-            self.speak_reply(reply)
+            if "voice" in self.modes():
+                # In voice mode, record the spoken turn and interrupt any
+                # ongoing speech so the conversation feels continuous.
+                reply = self.answer_voice(line)
+            else:
+                reply = self.answer_stream(line, on_event=on_event)
+                self.speak_reply(reply)
             return reply
         self.last_kind = "cmd"
         cmd, _, rest = line.partition(" ")
@@ -736,6 +878,9 @@ class Phoenix:
         if cmd == "model":
             return self._cmd_model(rest)
 
+        if cmd == "freellmapi":
+            return self._cmd_freellmapi(rest)
+
         if cmd == "key":
             return self._cmd_key(rest)
 
@@ -763,9 +908,12 @@ class Phoenix:
             cfg2 = _cfgmod.load()
             pname = cfg2["settings"].get("provider", "")
             spec2 = cfg2["providers"].get(pname) or {}
+            if pname == "freellmapi":
+                return tools.run("freellmapi_models", {})
             if pname != "openrouter":
                 return ("Active provider is %s; model listing is for "
-                        "openrouter." % (pname or "?"))
+                        "openrouter. Use /freellmapi to list FreeLLMAPI models."
+                        % (pname or "?"))
             ids = tools._or_model_ids(spec2.get("api_key", ""))
             free = [i for i in ids if i.endswith(":free")]
             if not free:
@@ -969,12 +1117,21 @@ class Phoenix:
         if cmd == "voice":
             return self._cmd_voice(rest)
 
+        if cmd == "whisper":
+            return self._cmd_whisper(rest)
+
         if cmd == "listen":
             text = voice.listen(
                 device=self.cfg["settings"].get("mic_device") or None)
             if not text:
                 return "(did not catch that - nothing heard or no mic)"
             return "You said: " + text + "\n" + self.answer(text)
+
+        if cmd == "voice male":
+            return self._cmd_voice_gender("male")
+
+        if cmd == "voice female":
+            return self._cmd_voice_gender("female")
 
         if cmd == "mic":
             sub = rest.lower()
@@ -1026,6 +1183,9 @@ class Phoenix:
             "                      github, cerebras, ollama, mock)\n"
             "  /model [name]       show or change the active model\n"
             "  /models             list free OpenRouter models right now\n"
+            "  /freellmapi [models|<model-id>]  list FreeLLMAPI models or \n"
+            "                      switch to one (gemini-3.6-flash, kimi-k3, \n"
+            "                      deepseek-v4-pro, auto...)\n"
             "  /key [name] [key]   set an API key (prompts if you omit it)\n"
             "  /add-provider <n> <url> <model>   add any OpenAI-compatible\n"
             "                      endpoint (e.g. your own vLLM/LM Studio)\n"
@@ -1075,6 +1235,8 @@ class Phoenix:
             "  /listen              dictate one message right now\n"
             "  /mic                 diagnose mics (shows which are live)\n"
             "  /mic use <index|name|auto>  force a mic (e.g. /mic use 2)\n"
+            "  /whisper [on|off]   always-listening: say 'phoenix' to talk\n"
+            "                       without pressing any button (hands-free)\n"
             "  /say <text>          speak text directly\n"
             "  /quit                exit Phoenix")
 
@@ -1109,9 +1271,28 @@ class Phoenix:
                     (spec.get("model", "?") if spec else "?"))
         if not spec:
             return "Active provider has no spec."
+        if name == "freellmapi":
+            return tools.run("freellmapi_set_model", {"model": rest})
         spec["model"] = rest
         self._save()
         return 'Model for "%s" set to %s.' % (name, rest)
+
+    def _cmd_freellmapi(self, rest):
+        """FreeLLMAPI commands: list models, set model, open dashboard."""
+        r = (rest or "").strip().lower()
+        if r in ("", "models", "list", "ls"):
+            return tools.run("freellmapi_models", {})
+        if r in ("dashboard", "open", "web", "ui", "app"):
+            import webbrowser
+            webbrowser.open("http://localhost:31415")
+            return "Opening FreeLLMAPI dashboard at http://localhost:31415 ..."
+        if r in ("key", "keys"):
+            return ("FreeLLMAPI needs backend provider keys to route requests. "
+                    "Open the dashboard and add at least one free key:\r\n"
+                    "  http://localhost:31415/keys\r\n"
+                    "Then come back and say 'test it' to verify.")
+        # try as a model switch.
+        return tools.run("freellmapi_set_model", {"model": rest})
 
     def _cmd_key(self, rest):
         name, spec = self.active()
@@ -1158,6 +1339,49 @@ class Phoenix:
         return ("Speaking replies: ON. /voice again to turn off."
                 if self._speak_flag
                 else "Speaking replies: OFF.")
+
+    def _cmd_whisper(self, rest):
+        """Always-listening wake-word mode: say 'phoenix' to talk without
+        pressing any button."""
+        r = (rest or "").lower().strip()
+        ws = self.whisper_state() if hasattr(self, "whisper_state") else {}
+        if r in ("on", "start", "enable"):
+            if ws.get("running"):
+                return "Already listening for 'phoenix'."
+            try:
+                from voice import has_mic
+            except Exception:
+                has_mic = lambda: False
+            if not has_mic():
+                return ("Mic input not available. Install once: python -m pip "
+                        "install SpeechRecognition pyaudio")
+            def on_heard(txt):
+                try:
+                    # answers in whisper mode are spoken automatically
+                    self.handle(txt)
+                except Exception as exc:
+                    print("whisper error: %s" % exc)
+            ok = self.voice_whisper_start(
+                device=self.cfg["settings"].get("mic_device") or None,
+                wake_word="phoenix", on_heard=on_heard)
+            if ok:
+                self.cfg["settings"]["whisper"] = True
+                self._save()
+                return ("Always-listening ON. Say 'phoenix' and then your "
+                        "question - no button needed. Say 'whisper off' to stop.")
+            return "Failed to start always-listening."
+        if r in ("off", "stop", "disable"):
+            self.voice_whisper_stop()
+            self.cfg["settings"].pop("whisper", None)
+            self._save()
+            return "Always-listening OFF."
+        # status
+        if ws.get("running"):
+            return ("Always-listening: ON (wake word: 'phoenix'). "
+                    "Whisper is %s." % (
+                        "persisted" if self.cfg["settings"].get("whisper") 
+                        else "temporary"))
+        return "Always-listening: OFF. /whisper on to start."
 
     def _cmd_save(self):
         if "darkphoenix" in self.modes():
