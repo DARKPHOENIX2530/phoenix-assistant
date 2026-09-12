@@ -313,3 +313,87 @@ per mode (DP / VOX / GOD); clicking wakes or sleeps just that one.
   Google's speech service (only if you use `/listen`), and Microsoft speech
   synthesis (only if you enable `/voice`).
 - Never share `config/config.json`.
+
+## 🔄 Auto-Updater (Keep Phoenix Updated Automatically)
+
+**Get updates automatically** when new code is pushed to GitHub — no manual `git pull` needed.
+
+### How It Works
+
+A **standalone** tool (separate from Phoenix) monitors the GitHub repo and applies updates to your local installation:
+
+- ✅ Checks every **5 minutes** for new commits
+- ✅ Waits for **5 minutes of stable internet** before updating
+- ✅ **Preserves your config, notes, and data** — only updates code
+- ✅ Notifies you when updated — just restart Phoenix
+- ✅ Runs in background, starts at login (optional)
+
+### Download & Setup
+
+**Option 1: Quick download (recommended)**
+```bash
+# Download the updater folder
+git clone https://github.com/DARKPHOENIX2530/phoenix-auto-updater.git
+cd phoenix-auto-updater
+
+# Run it
+# Windows: double-click run_updater.bat
+# Linux/mac: python phoenix_auto_updater.py
+```
+
+**Option 2: Direct download**
+1. Go to: **https://github.com/DARKPHOENIX2530/phoenix-auto-updater**
+2. Click **Code → Download ZIP**
+3. Extract anywhere on your computer
+4. Run `run_updater.bat` (Windows) or `python phoenix_auto_updater.py`
+
+### First Run
+
+```
+Starting Phoenix Auto-Updater...
+Phoenix installation not found in common locations.
+Enter full path to your Phoenix installation: C:\Users\You\phoenix
+[Updater] Found Phoenix at: C:\Users\You\phoenix
+[Updater] Monitoring https://github.com/DARKPHOENIX2530/phoenix-assistant.git (main)
+[Updater] Current version: a1b2c3d4
+[Updater] Running in background... (Ctrl+C to stop)
+```
+
+Enter your Phoenix folder path (where `main.py` is). The updater remembers it.
+
+### Auto-Start at Login (Windows)
+
+1. Press `Win+R`, type `shell:startup`, press Enter
+2. Create a **shortcut** to `run_updater.bat` in that folder
+3. Done — updater runs automatically when you log in
+
+### What Gets Updated / Preserved
+
+| Updated (from GitHub) | Preserved (never touched) |
+|----------------------|---------------------------|
+| All `.py` files | Your `config/config.json` (API keys) |
+| `webgui/` folder | Your `notes/` folder (memory, sessions) |
+| `tests/` folder | Any files you added yourself |
+| New files added to repo | The updater itself (it's separate) |
+
+### Manual Update Check
+
+Want to force a check now? Just **restart the updater** (Ctrl+C, then run again).
+
+### Requirements
+
+- **Python 3.8+** (from [python.org](https://python.org))
+- **Git** (for the bare mirror repo)
+- Internet connection
+
+### Why Separate Repo?
+
+The auto-updater lives in its own repo (`phoenix-auto-updater`) so:
+- Your Phoenix development never gets downgraded
+- You can update Phoenix without the updater interfering
+- Users download the updater **once**, it works forever
+
+---
+
+**Updater repo:** https://github.com/DARKPHOENIX2530/phoenix-auto-updater  
+**Phoenix repo:** https://github.com/DARKPHOENIX2530/phoenix-assistant
