@@ -1164,15 +1164,18 @@ class Phoenix:
             return "\n".join(lines)
 
         if cmd == "say":
-            ok = voice.speak(rest)
-            return ("(spoken)" if ok else "(speech unavailable - text above "
-                    "is all I have)")
-        if cmd == "mock":
-            self.cfg["settings"]["provider"] = "mock"
-            self._save()
-            return "Switched to offline mock mode. /setup reconnects a free AI."
+                    ok = voice.speak(rest)
+                    return ("(spoken)" if ok else "(speech unavailable - text above "
+                            "is all I have)")
+                if cmd == "mock":
+                    self.cfg["settings"]["provider"] = "mock"
+                    self._save()
+                    return "Switched to offline mock mode. /setup reconnects a free AI."
 
-        return "Unknown command /%s. Type /help for the list." % cmd
+                if cmd == "update":
+                    return self._cmd_update(rest)
+
+                return "Unknown command /%s. Type /help for the list." % cmd
 
     # ---- individual command implementations --------------------------- #
     def _help_text(self):
