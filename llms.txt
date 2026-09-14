@@ -1,0 +1,35 @@
+# Phoenix Assistant
+> Lightweight personal AI assistant with identity-aware browser control (free cloud AIs, HUD web UI).
+
+## Project Structure
+- Core runtime: `main.py`, `assistant.py`, `config.py`
+- Providers: `providers.py` (Gemini, Groq, OpenRouter, GitHub Models, Cerebras, Ollama, FreeLLMAPI, Mock)
+- Tools: `tools.py` (web search, browser control, notes, memory, system info, apps, security shield, automations, OS admin)
+- Memory & Skills: `mind.py` (persistent memory + self-evolving skills)
+- Voice I/O: `voice.py` (Windows TTS + SpeechRecognition)
+- GUI: `futuristic_gui.py` (CustomTkinter desktop), `webgui/` (HUD web UI on port 8055)
+- Security: `security_shield.py` (defensive: network/hosts/startup audit, firewall, process kill, logon attacks)
+- Auto-updater: Separate repo `phoenix-auto-updater`
+
+## Key Features
+- Free cloud AI providers (no payment needed)
+- Identity-aware browser control (Chrome/Edge/Santa profiles)
+- Persistent memory + self-evolving skills
+- Voice input/output
+- HUD web UI (sci-fi arc-reactor style)
+- Modes: DarkPhoenix (ghost), Voice (full voice), God (full tools, zero-cost)
+- Security Shield (defensive only)
+- Automations & OS admin (audited)
+- Streaming replies + background watchdog
+- Auto-updater (standalone tool)
+
+## Usage Terms
+- Free for personal use
+- Commercial use requires permission
+- Attribution required: "Built with Phoenix by DARKPHOENIX2530"
+- License: MIT
+
+## Links
+- Repository: https://github.com/DARKPHOENIX2530/phoenix-assistant
+- Auto-updater: https://github.com/DARKPHOENIX2530/phoenix-auto-updater
+- Raw README: https://raw.githubusercontent.com/DARKPHOENIX2530/phoenix-assistant/main/README.md

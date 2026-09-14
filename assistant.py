@@ -9,6 +9,7 @@ import getpass
 import os
 import platform
 import re
+import threading
 
 import config
 import mind
@@ -251,6 +252,39 @@ class Phoenix:
                 else self.sleep_mode(mode)
             parts.append(out)
         return parts
+
+    @staticmethod
+    def parse_voice_gender_phrase(line):
+        """Detect spoken/typed voice-gender switches in a sentence.
+
+        Understands: 'switch to male voice', 'use a female voice',
+        'talk in a man's voice', 'speak like a girl', 'male voice on',
+        'female voice please'...
+        Requires BOTH a gender word and switch intent, so ordinary
+        sentences ('talk about the female workforce') do not trigger.
+        Returns ('male'|'female') or None.
+        """
+        low = " " + re.sub(r"\s+", " ", (line or "").lower()) + " "
+        if not re.search(r"\bvoice\b|\bspeak\b|\btalk\b", low):
+            return None
+        # switch intent: verb/phrase DIRECTLY tied to the gender word
+        intent = re.search(
+            r"(?:switch|change|go|turn|toggle|set|use|give|make|put)\s*(?:to|into|on|me)?\s*"
+            r"(?:a|an|the|your)?\s*(?:male|female|man|woman|boy|girl|guy|lady)\b"
+            r"|(?:male|female|man|woman|boy|girl|guy|lady)\s*(?:voice|tone)\s*(?:on|off|please|mode)\b"
+            r"|\b(?:switch|change|set|turn|put)\s+(?:your|the|its)?\s*voice\s+"
+            r"(?:to|into|like)?\s*(?:a|an|the)?\s*"
+            r"(?:male|female|man|woman|boy|girl|guy|lady)(?:'s)?\b"
+            r"|\b(?:talk|speak)\s+(?:in|with|like)\s+(?:a|an|the)?\s*"
+            r"(?:male|female|man|woman|boy|girl|guy|lady)(?:'s)?\b", low)
+        if not intent:
+            return None
+        seg = intent.group(0)
+        if re.search(r"\b(female|woman|girl|lady)\b", seg):
+            return "female"
+        if re.search(r"\b(male|man|boy|guy)\b", seg):
+            return "male"
+        return None
 
     def switch_mode(self, mode):
         """Explicit /mode command: wake a mode WITHOUT sleeping the others
@@ -729,12 +763,85 @@ class Phoenix:
     def answer(self, user_text):
         return self.answer_stream(user_text)
 
-    def answer_voice(self, user_text):
-        """Answer a spoken turn: records voice context, speeches the reply,
-        and interrupts any ongoing speech first so the conversation feels
-        live (not queued)."""
-        reply = self.answer_stream(user_text, spoken=True)
-        self.speak_reply(reply, interrupt=True)
+    def answer_voice(self, user_text, on_event=None):
+        """Answer a spoken turn with STREAMING SPEECH: each completed
+        sentence is spoken the moment it arrives, instead of waiting for
+        the whole reply. Interrupts any ongoing speech from the PREVIOUS
+        turn first so the conversation feels live.
+
+        After the stream only the un-spoken TAIL is flushed; if the fact
+        audit rewrote the reply, the corrected text is spoken fresh.
+        """
+        gender = self.cfg["settings"].get("voice_gender", "female")
+        speak_lock = threading.Lock()
+        chunk_threads = []
+        state = {"cancelled": False}
+
+        def speak_chunk(text):
+            if not text.strip() or state["cancelled"]:
+                return
+            with speak_lock:
+                if state["cancelled"]:
+                    return
+                try:
+                    voice.speak_with_gender(text, gender=gender)
+                except Exception:
+                    pass
+
+        def token_speaker(ev):
+            if on_event is not None:
+                try:
+                    on_event(ev)
+                except Exception:
+                    pass
+            if ev.get("type") == "token":
+                buf = token_speaker.buf + ev.get("text", "")
+                # Consume COMPLETED sentences from the FRONT of the buffer.
+                # A sentence shorter than ~25 chars is joined with the next
+                # one (natural pacing, no clipped 'Hi.'), so we advance past
+                # it but keep it in the pending text.
+                pending = token_speaker.pending
+                while True:
+                    m = re.match(r"^(.*?[.!?])(\s+|$)", buf, re.S)
+                    if not m:
+                        break
+                    sent = m.group(1)
+                    pending += sent + " "
+                    buf = buf[m.end():]
+                    if len(sent) >= 25:
+                        token_speaker.spoken += pending
+                        token_speaker.pending = ""
+                        t = threading.Thread(target=speak_chunk,
+                                             args=(pending.strip(),),
+                                             daemon=True)
+                        chunk_threads.append(t)
+                        t.start()
+                        pending = ""
+                token_speaker.pending = pending
+                token_speaker.buf = buf
+            elif ev.get("type") == "error":
+                state["cancelled"] = True
+                voice.cancel_speech()
+        token_speaker.buf = ""
+        token_speaker.spoken = ""
+        token_speaker.pending = ""
+
+        reply = self.answer_stream(user_text, on_event=token_speaker,
+                                   spoken=True)
+        # Wait (briefly) for in-flight sentence speech, then flush the tail.
+        for t in chunk_threads:
+            t.join(timeout=20)
+        if state["cancelled"]:
+            return reply
+        streamed_full = (token_speaker.spoken + token_speaker.pending \
+                         + token_speaker.buf).strip()
+        if reply and reply.strip() and reply.strip() != streamed_full:
+            # Audit rewrote the reply - speak the corrected version fresh.
+            self.speak_reply(reply, interrupt=True)
+        else:
+            tail = (token_speaker.pending + token_speaker.buf).strip()
+            if tail:
+                self.speak_reply(tail)
         return reply
 
     # ---- automatic failover ------------------------------------------- #
@@ -781,13 +888,21 @@ class Phoenix:
         return None
 
     def speak_reply(self, text, interrupt=False):
-        """Speak a reply aloud if voice is on.
+        """Speak a reply aloud if voice is on - in a BACKGROUND thread so
+        the caller (and the HUD server lock) is never blocked while the
+        utterance plays.
 
-        interrupt=True cuts off any in-progress speech so a new answer
-        starts immediately (keeps the voice conversation feeling live).
+        interrupt=True cuts off any in-progress speech first so a new
+        answer starts immediately (keeps voice mode feeling live).
         """
-        if self._speak_flag:
-            voice.speak(text, interrupt=interrupt)
+        if not self._speak_flag:
+            return
+        if interrupt:
+            voice.cancel_speech()      # stop the old voice RIGHT NOW
+        gender = self.cfg["settings"].get("voice_gender", "female")
+        threading.Thread(
+            target=voice.speak_with_gender,
+            args=(text,), kwargs={"gender": gender}, daemon=True).start()
 
     # ------------------------------------------------------------------ #
     # Voice mode extras
@@ -842,11 +957,20 @@ class Phoenix:
                 if self._speak_flag:
                     self.speak_reply(reply)
                 return reply
+            # spoken/typed voice-gender switch: "switch to male voice"
+            vgender = self.parse_voice_gender_phrase(line)
+            if vgender and vgender != \
+                    self.cfg["settings"].get("voice_gender", "female"):
+                reply = self._cmd_voice_gender(vgender)
+                self.last_kind = "cmd"
+                if self._speak_flag:
+                    self.speak_reply(reply)
+                return reply
             self.last_kind = "ai"
             if "voice" in self.modes():
                 # In voice mode, record the spoken turn and interrupt any
                 # ongoing speech so the conversation feels continuous.
-                reply = self.answer_voice(line)
+                reply = self.answer_voice(line, on_event=on_event)
             else:
                 reply = self.answer_stream(line, on_event=on_event)
                 self.speak_reply(reply)
@@ -1127,12 +1251,6 @@ class Phoenix:
                 return "(did not catch that - nothing heard or no mic)"
             return "You said: " + text + "\n" + self.answer(text)
 
-        if cmd == "voice male":
-            return self._cmd_voice_gender("male")
-
-        if cmd == "voice female":
-            return self._cmd_voice_gender("female")
-
         if cmd == "mic":
             sub = rest.lower()
             if sub.startswith("use") or sub == "auto":
@@ -1332,6 +1450,10 @@ class Phoenix:
             self.cfg["settings"]["voice_out"] = False
             self._save()
             return "Speaking replies: OFF."
+        if r in ("male", "man", "boy"):
+            return self._cmd_voice_gender("male")
+        if r in ("female", "woman", "girl"):
+            return self._cmd_voice_gender("female")
         # no argument (or 'out'): toggle speaking replies
         self._speak_flag = not self._speak_flag
         self.cfg["settings"]["voice_out"] = self._speak_flag
@@ -1340,9 +1462,30 @@ class Phoenix:
                 if self._speak_flag
                 else "Speaking replies: OFF.")
 
-    def _cmd_whisper(self, rest):
+    def _cmd_voice_gender(self, gender):
+        """Switch voice output to the given gender (male/female)."""
+        voice_name = voice._find_voice_by_gender(gender)
+        self.cfg["settings"]["voice_gender"] = gender
+        self._speak_flag = True
+        self.cfg["settings"]["voice_out"] = True
+        self._save()
+        label = voice_name or gender
+        # Confirm aloud - in the background so the command returns instantly.
+        threading.Thread(
+            target=voice.speak_with_gender,
+            args=("Voice set to %s." % gender,),
+            kwargs={"gender": gender}, daemon=True).start()
+        return ("Voice set to %s (%s). Speaking replies are ON. "
+                "Say '/voice off' to stop."
+                % (gender.capitalize(), label))
+
+    def _cmd_whisper(self, rest, on_heard=None):
         """Always-listening wake-word mode: say 'phoenix' to talk without
-        pressing any button."""
+        pressing any button.
+
+        on_heard: optional callback(text) replacing the default handler
+        (used by the HUD server to serialize heard turns through its lock
+        and mirror them into the HUD transcript)."""
         r = (rest or "").lower().strip()
         ws = self.whisper_state() if hasattr(self, "whisper_state") else {}
         if r in ("on", "start", "enable"):
@@ -1355,12 +1498,13 @@ class Phoenix:
             if not has_mic():
                 return ("Mic input not available. Install once: python -m pip "
                         "install SpeechRecognition pyaudio")
-            def on_heard(txt):
-                try:
-                    # answers in whisper mode are spoken automatically
-                    self.handle(txt)
-                except Exception as exc:
-                    print("whisper error: %s" % exc)
+            if on_heard is None:
+                def on_heard(txt):
+                    try:
+                        # answers in whisper mode are spoken automatically
+                        self.handle(txt)
+                    except Exception as exc:
+                        print("whisper error: %s" % exc)
             ok = self.voice_whisper_start(
                 device=self.cfg["settings"].get("mic_device") or None,
                 wake_word="phoenix", on_heard=on_heard)

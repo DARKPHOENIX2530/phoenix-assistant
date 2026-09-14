@@ -24,94 +24,63 @@ import time
 
 # --------------------------------------------------------------------------- #
 # Speaking state (shared across threads / GUI)
+# A lock guards _SPEAKING because speak_with_gender runs in background
+# threads (one per reply) while cancel_speech fires from other threads.
+# Each utterance gets a GENERATION number: cancel bumps the generation,
+# so a stale watcher (slow old utterance) can never touch a NEW one.
 # --------------------------------------------------------------------------- #
-_SPEAKING = {"active": False, "cancel": False}
+_SPEAKING = {"active": False, "cancel": False, "proc": None,
+             "gen": 0}
+_speak_lock = threading.Lock()
 
 
 def is_speaking():
-    return _SPEAKING["active"]
+    with _speak_lock:
+        return _SPEAKING["active"]
 
 
 def cancel_speech():
-    """Signal the current speech to stop early (next call to speak())."""
-    _SPEAKING["cancel"] = True
+    """Stop the current speech RIGHT NOW (kill the TTS process)."""
+    with _speak_lock:
+        _SPEAKING["cancel"] = True
+        proc = _SPEAKING["proc"]
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
 
-def _find_voice_by_gender(gender):
-    """Find a voice id for the given gender via pyttsx3 or Windows voices.
-
-    gender: 'male', 'female', or a specific voice name/id.
-    Returns a voice id string or None.
-    """
-    gender = (gender or "").strip().lower()
-    # Try pyttsx3
-    try:
-        import pyttsx3
-        engine = pyttsx3.init()
-        voices = engine.getProperty("voices") or []
-        if len(voices) == 1:
-            return voices[0].id
-        # specific name match
-        for v in voices:
-            vn = (v.name or "").lower()
-            if gender in vn or vn in gender:
-                return v.id
-        # gender keyword match
-        if gender in ("female", "woman", "girl"):
-            for v in voices:
-                vn = (v.name or "").lower()
-                if any(kw in vn for kw in ("zira", "samantha", "female", "mary", "harmony", "moira", "tessa", "microsoft")):
-                    continue
-                if v.gender and "female" in str(v.gender).lower():
-                    return v.id
-        if gender in ("male", "man", "boy"):
-            for v in voices:
-                vn = (v.name or "").lower()
-                if v.gender and "male" in str(v.gender).lower():
-                    return v.id
-        # fallback: first voice
-        return voices[0].id if voices else None
-    except Exception:
-        pass
-
-    # Windows System.Speech: pick by name
-    if os.name == "nt":
-        name_map = {
-            "female": "Microsoft Zira Desktop",
-            "male": "Microsoft David Desktop",
-        }
-        if gender in name_map:
-            return name_map[gender]
-        # try a partial match on installed voices
-        try:
-            import subprocess
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                 "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-                 "$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name }"],
-                capture_output=True, text=True, timeout=10)
-            installed = [l.strip() for l in r.stdout.splitlines() if l.strip()]
-            if gender in installed:
-                return gender
-            for name in installed:
-                if gender in name.lower():
-                    return name
-            if gender in ("female", "woman"):
-                for name in installed:
-                    if "zira" in name.lower():
-                        return name
-            if gender in ("male", "man"):
-                for name in installed:
-                    if "david" in name.lower() or "mark" in name.lower():
-                        return name
-        except Exception:
-            pass
-    return None
+def _begin_speaking():
+    """Claim the speaker for a NEW utterance (generation++). Returns the
+    generation this caller owns."""
+    with _speak_lock:
+        # If something is still playing, stop it first (its watcher will
+        # notice its generation is stale and clean up without touching us).
+        proc = _SPEAKING["proc"]
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        _SPEAKING["gen"] += 1
+        gen = _SPEAKING["gen"]
+        _SPEAKING.update({"active": True, "cancel": False})
+        return gen
 
 
-def _clear_speaking():
-    _SPEAKING["active"] = False
-    _SPEAKING["cancel"] = False
+def _my_speech_cancelled(gen):
+    with _speak_lock:
+        return (_SPEAKING["cancel"] and _SPEAKING["gen"] == gen) \
+            or _SPEAKING["gen"] != gen
+
+
+def _finish_speaking(gen):
+    """Clear state ONLY if this generation still owns the speaker."""
+    with _speak_lock:
+        if _SPEAKING["gen"] == gen:
+            _SPEAKING.update({"active": False, "cancel": False,
+                              "proc": None})
 
 
 
@@ -188,6 +157,9 @@ def speak(text, voice=None, interrupt=False):
             pass  # fall through to the Windows engine
 
     # 2) Windows built-in System.Speech (no install needed).
+    #    Runs SYNCHRONOUSLY here, so use SpeakAsync + the synth's own
+    #    marker so cancel_speech() can stop it early instead of blocking
+    #    for the whole utterance.
     if os.name == "nt":
         escaped = text.replace("'", "''")
         script = (
@@ -198,10 +170,20 @@ def speak(text, voice=None, interrupt=False):
         _SPEAKING["active"] = True
         _SPEAKING["cancel"] = False
         try:
-            subprocess.run(
+            proc = subprocess.Popen(
                 ["powershell", "-NoProfile", "-NonInteractive",
                  "-EncodedCommand", _powershell_encoded(script)],
-                capture_output=True, timeout=60)
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _SPEAKING["proc"] = proc
+            # Watch: if cancel is requested, kill the PowerShell TTS proc.
+            while proc.poll() is None:
+                if _SPEAKING["cancel"]:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.1)
             _clear_speaking()
             return True
         except Exception:
@@ -230,56 +212,49 @@ def _find_voice_by_gender(gender):
     Returns a voice id string or None.
     """
     gender = (gender or "").strip().lower()
+    if not gender:
+        return None
+
+    # A specific voice name/id passed straight through (best-effort).
+    if gender not in ("male", "man", "boy", "female", "woman", "girl"):
+        return gender
 
     # Try pyttsx3 first (gender-aware voices).
-    pyttsx3 = None
     try:
         import pyttsx3
-        pyttsx3 = pyttsx3
     except ImportError:
-        pass
+        pyttsx3 = None
     if pyttsx3 is not None:
         try:
             engine = pyttsx3.init()
             voices = engine.getProperty("voices") or []
             if len(voices) == 1:
                 return voices[0].id
+            want_female = gender in ("female", "woman", "girl")
+            # gender keyword match on the voice NAME first.
             for v in voices:
                 vn = (v.name or "").lower()
-                if gender in vn or vn in gender:
+                if want_female and any(kw in vn for kw in (
+                        "zira", "samantha", "female", "mary", "hazel",
+                        "susan", "heather", "eva")):
                     return v.id
-            if gender in ("female", "woman", "girl"):
-                for v in voices:
-                    vn = (v.name or "").lower()
-                    if any(kw in vn for kw in ("zira", "samantha", "female", "mary",
-                                                  "harmony", "moira", "tessa", "microsoft")):
-                        continue
-                    try:
-                        g = v.gender
-                        if g and "female" in str(g).lower():
-                            return v.id
-                    except Exception:
-                        pass
-            if gender in ("male", "man", "boy"):
-                for v in voices:
-                    try:
-                        g = v.gender
-                        if g and "male" in str(g).lower():
-                            return v.id
-                    except Exception:
-                        pass
+                if not want_female and any(kw in vn for kw in (
+                        "david", "mark", "male", "george", "guy", "reed")):
+                    return v.id
+            # then the engine-reported gender attribute.
+            for v in voices:
+                try:
+                    g = str(v.gender or "").lower()
+                    if g and ("female" if want_female else "male") in g:
+                        return v.id
+                except Exception:
+                    pass
             return voices[0].id if voices else None
         except Exception:
             pass
 
-    # Windows System.Speech voice selection.
+    # Windows System.Speech voice selection (no install needed).
     if os.name == "nt":
-        name_map = {
-            "female": "Microsoft Zira Desktop",
-            "male": "Microsoft David Desktop",
-        }
-        if gender in name_map:
-            return name_map[gender]
         try:
             r = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command",
@@ -287,21 +262,21 @@ def _find_voice_by_gender(gender):
                  "$s.GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name }"],
                 capture_output=True, text=True, timeout=10)
             installed = [l.strip() for l in r.stdout.splitlines() if l.strip()]
-            if gender in installed:
-                return gender
+            want_female = gender in ("female", "woman", "girl")
             for name in installed:
-                if gender in name.lower():
+                nl = name.lower()
+                if want_female and any(kw in nl for kw in (
+                        "zira", "hazel", "susan", "heather", "eva", "female")):
                     return name
-            if gender in ("female", "woman"):
-                for name in installed:
-                    if "zira" in name.lower():
-                        return name
-            if gender in ("male", "man"):
-                for name in installed:
-                    if "david" in name.lower() or "mark" in name.lower():
-                        return name
+                if not want_female and any(kw in nl for kw in (
+                        "david", "mark", "george", "guy", "male")):
+                    return name
         except Exception:
             pass
+        # No matching installed voice: fall back to the common Windows
+        # defaults (verified present on most Windows 10/11 systems).
+        return ("Microsoft Zira Desktop" if want_female
+                else "Microsoft David Desktop")
     return None
 
 
@@ -309,15 +284,15 @@ def speak_with_gender(text, gender="female", interrupt=False):
     """Speak text aloud using a voice of the given gender.
 
     gender: 'male' | 'female' | a specific voice name/id.
+    interrupt=True kills any in-progress utterance first.
     Returns the voice name actually used, or None if speech failed.
+
+    Thread-safe: each call owns a generation; a newer utterance (or a
+    cancel) invalidates older watchers so they cannot clobber state.
     """
     if not text or not str(text).strip():
         return None
     text = _shorten(str(text))
-
-    if interrupt:
-        _SPEAKING["cancel"] = True
-        _clear_speaking()
 
     # 1) pyttsx3 (preferred: nicer voices, gender-aware).
     pyttsx3 = None
@@ -332,16 +307,17 @@ def speak_with_gender(text, gender="female", interrupt=False):
             voice_id = _find_voice_by_gender(gender)
             if voice_id:
                 engine.setProperty("voice", voice_id)
-            _SPEAKING["active"] = True
-            _SPEAKING["cancel"] = False
+            gen = _begin_speaking()
             engine.say(text)
             engine.runAndWait()
-            _clear_speaking()
+            _finish_speaking(gen)
             return voice_id or "pyttsx3-default"
         except Exception:
             pass
 
     # 2) Windows System.Speech with gender-specific voice.
+    #    A watcher kills the TTS process when cancelled, so interrupt=True
+    #    truly stops the old voice instead of overlapping.
     if os.name == "nt":
         voice_name = _find_voice_by_gender(gender)
         escaped = text.replace("'", "''")
@@ -358,17 +334,25 @@ def speak_with_gender(text, gender="female", interrupt=False):
                 "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;"
                 "$s.Speak('" + escaped + "')"
             )
-        _SPEAKING["active"] = True
-        _SPEAKING["cancel"] = False
         try:
-            subprocess.run(
+            proc = subprocess.Popen(
                 ["powershell", "-NoProfile", "-NonInteractive",
                  "-EncodedCommand", _powershell_encoded(script)],
-                capture_output=True, timeout=60)
-            _clear_speaking()
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            gen = _begin_speaking()      # kills any previous TTS proc
+            with _speak_lock:
+                _SPEAKING["proc"] = proc
+            while proc.poll() is None:
+                if _my_speech_cancelled(gen):
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.1)
+            _finish_speaking(gen)
             return voice_name or "system-default"
         except Exception:
-            _clear_speaking()
             pass
 
     return None

@@ -29,6 +29,24 @@ _lock = threading.Lock()          # serialize access to the Phoenix instance
 _listen_lock = threading.Lock()   # the mic can only listen to one thing
 _bot = None                       # lazy-created Phoenix instance
 
+# HUD conversation transcript (user + phoenix + system lines) for replay
+# after a page reload. Mirrors what the chat panel shows. Plain list of
+# {"kind": "user"|"ai"|"sys"|"err", "text": str}.
+_history = []
+_history_lock = threading.Lock()
+_HISTORY_MAX = 50
+
+
+def _hist_add(kind, text):
+    with _history_lock:
+        _history.append({"kind": kind, "text": text})
+        del _history[:-_HISTORY_MAX]      # keep only the newest N
+
+
+def _hist_snapshot():
+    with _history_lock:
+        return list(_history)
+
 
 def get_bot():
     global _bot
@@ -38,6 +56,29 @@ def get_bot():
             cfg = config.load()
             _bot = assistant.Phoenix(cfg)
         return _bot
+
+
+def _on_heard_from_mic(text):
+    """Wake-word callback (HUD whisper mode): serialize the heard phrase
+    through the chat lock and mirror it into the HUD transcript."""
+    text = (text or "").strip()
+    if not text:
+        return
+    # strip a leading wake word so the HUD shows the actual command
+    low = text.lower()
+    for w in ("phoenix,", "phoenix"):
+        if low.startswith(w):
+            text = text[len(w):].strip(" ,.!") or text
+            break
+    _hist_add("user", text)
+    bot = get_bot()
+    try:
+        with _lock:
+            reply = bot.handle(text)
+    except Exception as exc:
+        reply = "! %s" % exc
+    if reply is not None:
+        _hist_add("err" if str(reply).startswith("!") else "ai", reply)
 
 
 def _system_payload():
@@ -109,7 +150,9 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- routes -------------------------------------------------------- #
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        if self.path == "/api/history":
+            self._send_json({"messages": _hist_snapshot()})
+        elif self.path in ("/", "/index.html"):
             self._send_file(os.path.join(WEBGUI, "index.html"),
                             "text/html; charset=utf-8")
         elif self.path == "/api/status":
@@ -123,6 +166,9 @@ class Handler(BaseHTTPRequestHandler):
                 "has_key": has_key,
                 "providers": providers,
                 "modes": bot.modes(),
+                "voice_gender": bot.cfg["settings"].get("voice_gender",
+                                                          "female"),
+                "whisper": bot.voice_status().get("whisper", {}),
                 **_system_payload(),
             }
             self._send_json(payload)
@@ -138,6 +184,7 @@ class Handler(BaseHTTPRequestHandler):
             if not text:
                 self._send_json({"error": "empty text"}, 400)
                 return
+            _hist_add("user", text)
             bot = get_bot()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -162,6 +209,7 @@ class Handler(BaseHTTPRequestHandler):
                 reply = "! Internal error: %s" % exc
             if reply is None:               # /quit typed in the HUD
                 reply = "(Phoenix core says goodbye - close the HUD to exit.)"
+            _hist_add("err" if str(reply).startswith("!") else "ai", reply)
             emit({"type": "done", "reply": reply})
         elif self.path == "/api/chat":
             data = self._read_body()
@@ -169,6 +217,7 @@ class Handler(BaseHTTPRequestHandler):
             if not text:
                 self._send_json({"error": "empty text"}, 400)
                 return
+            _hist_add("user", text)
             bot = get_bot()
             try:
                 with _lock:
@@ -176,9 +225,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"reply": "! Internal error: %s" % exc,
                                  "error": True})
+                _hist_add("err", "! Internal error: %s" % exc)
                 return
             if reply is None:               # /quit typed in the HUD
                 reply = "(Phoenix core says goodbye - close the HUD to exit.)"
+            _hist_add("err" if str(reply).startswith("!") else "ai", reply)
             self._send_json({"reply": reply, "error": reply.startswith("!")})
         elif self.path == "/api/mode":
             """Toggle a mode on/off: {"mode": "darkphoenix"}"""
@@ -191,10 +242,45 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with _lock:
                     reply = bot.switch_mode(mode)
+                _hist_add("sys", reply)
                 self._send_json({"ok": True, "reply": reply,
                                  "modes": bot.modes()})
             except Exception as exc:
                 self._send_json({"ok": False, "reply": str(exc)})
+        elif self.path == "/api/voice-gender":
+            """{"gender": "male"|"female"} -> switch spoken voice."""
+            data = self._read_body()
+            gender = str(data.get("gender") or "").strip().lower()
+            if gender not in ("male", "female"):
+                self._send_json({"ok": False,
+                                 "error": "gender must be male/female"})
+                return
+            bot = get_bot()
+            try:
+                with _lock:
+                    reply = bot.handle("/voice " + gender)
+                _hist_add("sys", reply)
+                self._send_json({"ok": True, "reply": reply,
+                                 "gender": gender})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)})
+        elif self.path == "/api/whisper":
+            """{"on": true|false} -> wake-word always-listening toggle."""
+            data = self._read_body()
+            want = bool(data.get("on"))
+            bot = get_bot()
+            try:
+                with _lock:
+                    if want:
+                        reply = bot._cmd_whisper("on",
+                                                 on_heard=_on_heard_from_mic)
+                    else:
+                        reply = bot._cmd_whisper("off")
+                running = bot.voice_status().get("whisper", {}).get("running")
+                self._send_json({"ok": True, "reply": reply,
+                                 "running": bool(running)})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)})
         elif self.path == "/api/provider":
             data = self._read_body()
             name = str(data.get("name") or "").strip()
@@ -231,16 +317,27 @@ class Handler(BaseHTTPRequestHandler):
                                  "error": "Didn't catch anything - try "
                                           "again, a bit closer to the mic."})
         elif self.path == "/api/speak":
-            """Speak text aloud: {"text": "..."}"""
+            """Speak text aloud: {"text": "...", "gender": "male"|"female"}
+
+            Speech runs in a BACKGROUND thread - the endpoint returns
+            immediately instead of blocking for the whole utterance."""
             data = self._read_body()
             text = str(data.get("text") or "").strip()
             if not text:
                 self._send_json({"error": "empty text"}, 400)
                 return
             import voice as _voice
+            gender = str(data.get("gender") or "").strip().lower()
+            if not gender:
+                bot = get_bot()
+                gender = bot.cfg["settings"].get("voice_gender", "female")
             try:
-                ok = _voice.speak(text)
-                self._send_json({"ok": ok, "spoke": ok})
+                threading.Thread(
+                    target=_voice.speak_with_gender,
+                    args=(text,), kwargs={"gender": gender},
+                    daemon=True).start()
+                self._send_json({"ok": True, "spoke": True, "voice": gender,
+                                 "async": True})
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)})
         else:

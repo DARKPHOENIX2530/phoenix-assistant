@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "nemo-rl-auto-research": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/nemo-rl-auto-research/SKILL.md",
+      "computedHash": "0b12906253db3e97413cac5f6bf56b2477c5cc5057285c40dc64cb459dade743"
+    }
+  }
+}

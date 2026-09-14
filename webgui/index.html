@@ -8,17 +8,37 @@
   :root {
     --gold:      #ffc94d;
     --gold-dim:  #8a6a1f;
-    --gold-glow: rgba(255, 201, 77, .55);
+    --gold-rgb:  255, 201, 77;
+    --gold-glow: rgba(var(--gold-rgb), .55);
     --amber:     #ff9d00;
     --green:     #39ff88;
     --red:       #ff5555;
     --bg:        #0d0a02;
     --panel:     rgba(30, 24, 8, .72);
-    --panel-brd: rgba(255, 201, 77, .25);
+    --panel-brd: rgba(var(--gold-rgb), .25);
     --text:      #f5eede;
     --text-dim:  #96895f;
-    --user-bubble: rgba(255, 201, 77, .08);
-    --ai-bubble:   rgba(255, 201, 77, .04);
+    --user-bubble: rgba(var(--gold-rgb), .08);
+    --ai-bubble:   rgba(var(--gold-rgb), .04);
+    --core-white: #fff8e0;
+    --panel-2:   #2a2210;
+  }
+
+  /* ---------- DARK PHOENIX ghost theme (dark violet) ---------- */
+  body.ghost {
+    --gold-rgb:  167, 87, 255;
+    --gold:      #b98cff;
+    --gold-dim:  #5f3d99;
+    --amber:     #9d5cff;
+    --bg:        #080512;
+    --panel:     rgba(24, 14, 40, .72);
+    --panel-brd: rgba(var(--gold-rgb), .25);
+    --text:      #efe6f7;
+    --text-dim:  #8a7fa3;
+    --user-bubble: rgba(var(--gold-rgb), .08);
+    --ai-bubble:   rgba(var(--gold-rgb), .04);
+    --core-white: #f4ecff;
+    --panel-2:   #1c1030;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -33,14 +53,14 @@
   .hexgrid {
     position: fixed; inset: 0; z-index: 0; pointer-events: none;
     background-image:
-      radial-gradient(circle at 25% 25%, rgba(255,201,77,.05) 0%, transparent 40%),
-      radial-gradient(circle at 80% 80%, rgba(255,201,77,.04) 0%, transparent 40%);
+      radial-gradient(circle at 25% 25%, rgba(var(--gold-rgb),.05) 0%, transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(var(--gold-rgb),.04) 0%, transparent 40%);
   }
   .hexgrid::before {
     content: ""; position: absolute; inset: 0;
     background-image:
-      linear-gradient(rgba(255,201,77,.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,201,77,.035) 1px, transparent 1px);
+      linear-gradient(rgba(var(--gold-rgb),.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(var(--gold-rgb),.035) 1px, transparent 1px);
     background-size: 42px 42px;
     mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
   }
@@ -65,12 +85,12 @@
     border: 1px solid var(--panel-brd);
     border-radius: 10px;
     backdrop-filter: blur(8px);
-    box-shadow: 0 0 24px rgba(255,201,77,.06), inset 0 0 30px rgba(255,201,77,.03);
+    box-shadow: 0 0 24px rgba(var(--gold-rgb),.06), inset 0 0 30px rgba(var(--gold-rgb),.03);
   }
   .panel-title {
     font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
     color: var(--gold-dim); padding: 8px 12px 4px;
-    border-bottom: 1px solid rgba(255,201,77,.12);
+    border-bottom: 1px solid rgba(var(--gold-rgb),.12);
     display: flex; justify-content: space-between; align-items: center;
   }
   .panel-title::before { content: "▍ "; color: var(--gold); }
@@ -125,15 +145,15 @@
   }
   .reactor .ring {
     position: absolute; inset: 0; border-radius: 50%;
-    border: 2px solid rgba(255,201,77,.35);
-    box-shadow: 0 0 18px rgba(255,201,77,.25), inset 0 0 18px rgba(255,201,77,.15);
+    border: 2px solid rgba(var(--gold-rgb),.35);
+    box-shadow: 0 0 18px rgba(var(--gold-rgb),.25), inset 0 0 18px rgba(var(--gold-rgb),.15);
   }
   .reactor .ring.r2 { inset: 14px; border-style: dashed; animation: spin 9s linear infinite; }
-  .reactor .ring.r3 { inset: 28px; border-color: rgba(255,201,77,.55); animation: spin 6s linear infinite reverse; }
+  .reactor .ring.r3 { inset: 28px; border-color: rgba(var(--gold-rgb),.55); animation: spin 6s linear infinite reverse; }
   .reactor .core {
     position: absolute; inset: 46px; border-radius: 50%;
-    background: radial-gradient(circle, #fff8e0 0%, var(--gold) 35%, rgba(255,201,77,.15) 75%);
-    box-shadow: 0 0 34px var(--gold-glow), 0 0 70px rgba(255,201,77,.35);
+    background: radial-gradient(circle, var(--core-white) 0%, var(--gold) 35%, rgba(var(--gold-rgb),.15) 75%);
+    box-shadow: 0 0 34px var(--gold-glow), 0 0 70px rgba(var(--gold-rgb),.35);
     animation: corepulse 2.4s ease-in-out infinite;
   }
   .reactor.idle .core { animation-duration: 4.5s; opacity: .75; }
@@ -142,8 +162,8 @@
   .reactor.thinking .core { animation-duration: .9s; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes corepulse {
-    0%,100% { box-shadow: 0 0 30px var(--gold-glow), 0 0 60px rgba(255,201,77,.3); }
-    50%     { box-shadow: 0 0 44px var(--gold-glow), 0 0 90px rgba(255,201,77,.5); }
+    0%,100% { box-shadow: 0 0 30px var(--gold-glow), 0 0 60px rgba(var(--gold-rgb),.3); }
+    50%     { box-shadow: 0 0 44px var(--gold-glow), 0 0 90px rgba(var(--gold-rgb),.5); }
   }
   #reactor-state {
     text-align: center; font-size: 10px; letter-spacing: 3px;
@@ -159,26 +179,26 @@
   #brain-panel .row .v { color: var(--gold); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #brain-panel select {
     width: calc(100% - 24px); margin: 4px 12px 10px;
-    background: rgba(255,201,77,.06); color: var(--gold);
+    background: rgba(var(--gold-rgb),.06); color: var(--gold);
     border: 1px solid var(--panel-brd); border-radius: 6px;
     font-family: inherit; font-size: 11px; padding: 5px 8px; outline: none;
     cursor: pointer;
   }
-  #brain-panel select option { background: #2a2210; color: var(--gold); }
+  #brain-panel select option { background: var(--panel-2); color: var(--gold); }
 
   /* quick actions */
   #actions-panel { flex: 1; overflow-y: auto; }
   #actions-panel .btn {
     display: block; width: calc(100% - 20px); margin: 6px 10px;
     padding: 8px 10px; text-align: left;
-    background: rgba(255,201,77,.05); color: var(--text);
-    border: 1px solid rgba(255,201,77,.18); border-radius: 7px;
+    background: rgba(var(--gold-rgb),.05); color: var(--text);
+    border: 1px solid rgba(var(--gold-rgb),.18); border-radius: 7px;
     font-family: inherit; font-size: 11px; letter-spacing: .5px;
     cursor: pointer; transition: all .15s;
   }
   #actions-panel .btn:hover {
-    background: rgba(255,201,77,.14); border-color: var(--gold);
-    box-shadow: 0 0 12px rgba(255,201,77,.25); color: var(--gold);
+    background: rgba(var(--gold-rgb),.14); border-color: var(--gold);
+    box-shadow: 0 0 12px rgba(var(--gold-rgb),.25); color: var(--gold);
   }
 
   /* ---------- right sidebar ---------- */
@@ -190,7 +210,7 @@
   #sys-panel .stat .k { color: var(--text-dim); }
   #sys-panel .stat .v { color: var(--text); }
   #sys-panel .bar {
-    height: 4px; margin: 0 12px 8px; background: rgba(255,201,77,.08);
+    height: 4px; margin: 0 12px 8px; background: rgba(var(--gold-rgb),.08);
     border-radius: 2px; overflow: hidden;
   }
   #sys-panel .bar > div {
@@ -215,17 +235,17 @@
   }
   #chat::-webkit-scrollbar, #eventlog::-webkit-scrollbar, #actions-panel::-webkit-scrollbar { width: 6px; }
   #chat::-webkit-scrollbar-thumb, #eventlog::-webkit-scrollbar-thumb, #actions-panel::-webkit-scrollbar-thumb {
-    background: rgba(255,201,77,.25); border-radius: 3px;
+    background: rgba(var(--gold-rgb),.25); border-radius: 3px;
   }
   .msg { max-width: 78%; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
   .msg.user {
     align-self: flex-end;
-    background: var(--user-bubble); border: 1px solid rgba(255,201,77,.3);
+    background: var(--user-bubble); border: 1px solid rgba(var(--gold-rgb),.3);
     border-right: 2px solid var(--gold);
   }
   .msg.ai {
     align-self: flex-start;
-    background: var(--ai-bubble); border: 1px solid rgba(255,201,77,.14);
+    background: var(--ai-bubble); border: 1px solid rgba(var(--gold-rgb),.14);
     border-left: 2px solid var(--gold-dim);
   }
   .msg.sys { align-self: center; font-size: 11px; color: var(--text-dim); background: none; border: none; padding: 2px; }
@@ -256,21 +276,21 @@
   }
   #prompt::placeholder { color: var(--text-dim); }
   .icmd {
-    background: none; border: 1px solid rgba(255,201,77,.25); color: var(--gold-dim);
+    background: none; border: 1px solid rgba(var(--gold-rgb),.25); color: var(--gold-dim);
     font-family: inherit; font-size: 10px; padding: 4px 8px; border-radius: 5px;
     cursor: pointer; transition: all .15s;
   }
-  .icmd:hover { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 8px rgba(255,201,77,.3); }
+  .icmd:hover { color: var(--gold); border-color: var(--gold); box-shadow: 0 0 8px rgba(var(--gold-rgb),.3); }
   #mic-btn, #send-btn {
     width: 46px; border-radius: 10px; cursor: pointer;
-    border: 1px solid var(--panel-brd); background: rgba(255,201,77,.06);
+    border: 1px solid var(--panel-brd); background: rgba(var(--gold-rgb),.06);
     color: var(--gold); font-size: 17px; transition: all .15s;
   }
   #send-btn {
-    background: rgba(255,201,77,.16); border-color: var(--gold);
-    box-shadow: 0 0 14px rgba(255,201,77,.25);
+    background: rgba(var(--gold-rgb),.16); border-color: var(--gold);
+    box-shadow: 0 0 14px rgba(var(--gold-rgb),.25);
   }
-  #send-btn:hover { background: rgba(255,201,77,.3); box-shadow: 0 0 22px var(--gold-glow); }
+  #send-btn:hover { background: rgba(var(--gold-rgb),.3); box-shadow: 0 0 22px var(--gold-glow); }
   #mic-btn:hover { border-color: var(--gold); }
   #mic-btn.listening { color: var(--red); border-color: var(--red); animation: pulse 1s infinite; }
 
@@ -293,7 +313,7 @@
   /* scanline sweep */
   #scan {
     position: fixed; inset: 0; z-index: 2; pointer-events: none;
-    background: linear-gradient(180deg, transparent 0%, rgba(255,201,77,.03) 48%, rgba(255,201,77,.07) 50%, rgba(255,201,77,.03) 52%, transparent 100%);
+    background: linear-gradient(180deg, transparent 0%, rgba(var(--gold-rgb),.03) 48%, rgba(var(--gold-rgb),.07) 50%, rgba(var(--gold-rgb),.03) 52%, transparent 100%);
     background-size: 100% 240px; animation: scanmove 7s linear infinite;
   }
   @keyframes scanmove { from { background-position: 0 -240px; } to { background-position: 0 100vh; } }
@@ -312,16 +332,68 @@
   /* mode toggle chips */
   #mode-chips { display: flex; gap: 6px; margin-left: 10px; }
   .mchip {
-    background: rgba(255,201,77,.05); color: var(--text-dim);
-    border: 1px solid rgba(255,201,77,.25); border-radius: 6px;
+    background: rgba(var(--gold-rgb),.05); color: var(--text-dim);
+    border: 1px solid rgba(var(--gold-rgb),.25); border-radius: 6px;
     font-family: inherit; font-size: 10px; letter-spacing: 1px;
     padding: 5px 9px; outline: none; cursor: pointer; transition: all .15s;
   }
   .mchip:hover { color: var(--gold); border-color: var(--gold); }
   .mchip.active {
     color: var(--gold); border-color: var(--gold);
-    background: rgba(255,201,77,.16);
+    background: rgba(var(--gold-rgb),.16);
     box-shadow: 0 0 12px var(--gold-glow); text-shadow: 0 0 8px var(--gold-glow);
+  }
+
+  /* ---------- full voice mode overlay (arc reactor only) ---------- */
+  #voice-overlay {
+    position: fixed; inset: 0; z-index: 9;
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 30px; cursor: pointer;
+    background: var(--bg);
+  }
+  #voice-overlay.on { display: flex; }
+  /* Same reactor as the HUD panel, only scaled up - rings, core, glow and
+     animations all inherit the ORIGINAL styles untouched. Only the insets
+     are %-scaled to keep the original proportions (14/28/46 px on 150 px
+     = 9.33/18.67/30.67 %). */
+  .reactor.giant { width: min(62vmin, 560px); height: min(62vmin, 560px); margin: 0; }
+  .reactor.giant .ring.r2 { inset: 9.33%; }
+  .reactor.giant .ring.r3 { inset: 18.67%; }
+  .reactor.giant .core { inset: 30.67%; }
+  .reactor.giant.listening .ring.r2 {
+    animation-duration: 1.4s; border-color: rgba(57,255,136,.55);
+    box-shadow: 0 0 26px rgba(57,255,136,.4);
+  }
+  .reactor.giant.listening .core {
+    background: radial-gradient(circle, #eafff2 0%, var(--green) 35%, rgba(57,255,136,.15) 75%);
+    box-shadow: 0 0 44px rgba(57,255,136,.55), 0 0 90px rgba(57,255,136,.3);
+    animation-duration: 1.1s;
+  }
+  .reactor.giant.thinking .ring.r2 { animation-duration: .9s; }
+  .reactor.giant.thinking .ring.r3 { animation-duration: .6s; }
+  .reactor.giant.thinking .core { animation-duration: .7s; }
+  #v-state {
+    font-size: 16px; letter-spacing: 8px; color: var(--gold);
+    text-transform: uppercase; text-shadow: 0 0 14px var(--gold-glow);
+  }
+  #v-hint { font-size: 10px; letter-spacing: 2px; color: var(--text-dim); }
+  #v-exit, #v-sound, #v-controls button {
+    position: absolute; top: 16px;
+    background: rgba(var(--gold-rgb),.05); color: var(--text-dim);
+    border: 1px solid rgba(var(--gold-rgb),.25); border-radius: 6px;
+    font-family: inherit; font-size: 10px; letter-spacing: 1px;
+    padding: 6px 10px; cursor: pointer; transition: all .15s;
+  }
+  #v-exit { right: 16px; }
+  #v-sound { right: 130px; }
+  #v-controls button { position: static; }
+  #v-controls { position: absolute; top: 16px; left: 16px; display: flex; gap: 6px; }
+  #v-controls button.sel, #v-exit:hover, #v-sound:hover,
+  #v-controls button:hover { color: var(--gold); border-color: var(--gold); }
+  #v-wake.on {
+    color: var(--green); border-color: var(--green);
+    box-shadow: 0 0 10px rgba(57,255,136,.35);
   }
 </style>
 </head>
@@ -337,6 +409,23 @@
   </div>
   <div class="bootline" id="bootline">INITIALIZING PHOENIX OS</div>
   <div class="sub">PHOENIX INTERFACE &nbsp;//&nbsp; v1.2</div>
+</div>
+
+<!-- full voice mode: arc reactor fullscreen -->
+<div id="voice-overlay" title="Tap to speak">
+  <div class="reactor giant idle" id="v-reactor">
+    <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
+    <div class="core"></div>
+  </div>
+  <div id="v-state">FULL VOICE</div>
+  <div id="v-hint">TAP ANYWHERE TO SPEAK &nbsp;//&nbsp; ESC EXITS VOICE</div>
+  <div id="v-controls">
+    <button id="v-gender-f" title="Speak replies with the female voice">&#9792; FEMALE</button>
+    <button id="v-gender-m" title="Speak replies with the male voice">&#9794; MALE</button>
+    <button id="v-wake" title="Always-listening: say 'phoenix' then your question">&#127908; WAKE: OFF</button>
+  </div>
+  <button id="v-exit" title="Turn voice mode off and return to the HUD (ESC)">EXIT VOICE</button>
+  <button id="v-sound" title="Toggle UI sounds">&#128266; SOUNDS ON</button>
 </div>
 
 <div id="app">
@@ -428,7 +517,36 @@
 <script>
 const $ = id => document.getElementById(id);
 const chatEl = $("chat"), promptEl = $("prompt");
-let busy = false, msgCount = 0;
+let busy = false, msgCount = 0, micActive = false;
+let modeBusy = false;             /* serialize mode toggles (no double-fire) */
+let lastModeChange = 0;           /* poller pauses briefly after a toggle */
+
+/* ---------- Jarvis UI sounds (WebAudio, no files) ---------- */
+let audioCtx = null;
+let soundsOn = localStorage.getItem("phoenix_sounds") !== "0";
+function beep(freq, dur, type, vol, delay) {
+  if (!soundsOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = audioCtx.currentTime + (delay || 0);
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol || 0.04, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  } catch (e) { /* audio unavailable; stay silent */ }
+}
+const sfx = {
+  send:   () => { beep(880, .08, "sine", .03); beep(1320, .10, "sine", .025, .07); },
+  reply:  () => { beep(660, .09, "sine", .03); beep(440, .12, "sine", .025, .08); },
+  modeOn: () => { beep(523, .10, "triangle", .05); beep(784, .12, "triangle", .05, .09); beep(1046, .16, "triangle", .05, .18); },
+  modeOff:() => { beep(784, .10, "triangle", .04); beep(523, .14, "triangle", .04, .09); beep(392, .18, "triangle", .04, .18); },
+  error:  () => { beep(220, .2, "sawtooth", .04); beep(180, .25, "sawtooth", .04, .12); },
+  listen: () => { beep(1200, .07, "sine", .03); }
+};
 
 /* ---------- clock ---------- */
 setInterval(() => {
@@ -465,6 +583,7 @@ function setBusy(on) {
   $("reactor-state").textContent = on ? "processing" : "standby";
   $("send-btn").disabled = on;
   $("send-btn").style.opacity = on ? .4 : 1;
+  refreshVoiceOverlay();
 }
 
 async function send(text) {
@@ -473,6 +592,7 @@ async function send(text) {
   addMsg(text, "user");
   promptEl.value = "";
   setBusy(true);
+  sfx.send();
   log("TX \u25b8 " + text.slice(0, 48));
 
   /* live message element for streaming */
@@ -484,6 +604,7 @@ async function send(text) {
   live.appendChild(who); live.appendChild(body);
   live.style.display = "none";      /* shown at first token */
   chatEl.appendChild(live);
+  live.style.flexDirection = "column";
   let liveShown = false, gotTokens = false;
   const showLive = () => { if (!liveShown) { live.style.display = "flex";
                                            liveShown = true; } };
@@ -492,12 +613,17 @@ async function send(text) {
   try {
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 1500);
-    const r = await fetch("/api/chat/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text }),
-      signal: ac.signal
-    });
+    let r;
+    try {
+      r = await fetch("/api/chat/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text }),
+        signal: ac.signal
+      });
+    } catch (e) {
+      throw { connectFail: true, inner: e };   /* never reached the server */
+    }
     clearTimeout(timer);
     if (!r.ok || !r.body) throw new Error("no stream");
     const reader = r.body.getReader();
@@ -552,25 +678,37 @@ async function send(text) {
       addMsg("(no reply - core dropped the stream)", "err");
     }
     log(isErr ? "RX \u25b8 error" : "RX \u25b8 reply", isErr ? "warn" : "ok");
+    isErr ? sfx.error() : sfx.reply();
   } catch (e) {
     live.remove();
-    /* fallback: plain POST (older core or stream refused) */
-    try {
-      const r = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text })
-      });
-      const data = await r.json();
-      addMsg(data.reply || "(empty reply)", data.error ? "err" : "ai");
-      log(data.error ? "RX \u25b8 error" : "RX \u25b8 reply",
-          data.error ? "warn" : "ok");
-    } catch (e2) {
-      addMsg("! Connection to Phoenix core lost: " + e2, "err");
-      log("LINK DOWN", "warn");
+    /* Retry ONLY if the request never reached the server (connect fail).
+       A mid-stream drop already delivered the message - re-POSTing would
+       ask Phoenix the same question twice. */
+    if (e && e.connectFail) {
+      try {
+        const r = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: text })
+        });
+        const data = await r.json();
+        addMsg(data.reply || "(empty reply)", data.error ? "err" : "ai");
+        log(data.error ? "RX \u25b8 error" : "RX \u25b8 reply",
+            data.error ? "warn" : "ok");
+      } catch (e2) {
+        addMsg("! Connection to Phoenix core lost: " + e2, "err");
+        log("LINK DOWN", "warn");
+        sfx.error();
+      }
+    } else {
+      /* stream broke after the server got it - surface, don't resend */
+      addMsg("(stream interrupted - the reply may be partial)", "sys");
+      log("STREAM DROPPED", "warn");
+      sfx.error();
     }
   }
   setBusy(false);
+  refreshStatus();          /* sync chips + ghost theme right after a turn */
   promptEl.focus();
 }
 
@@ -584,6 +722,114 @@ document.querySelectorAll("[data-cmd]").forEach(btn => {
     if (c.endsWith(" ")) { promptEl.value = c; promptEl.focus(); }
     else send(c);
   });
+});
+
+/* ---------- full voice overlay ---------- */
+function voiceOverlayOn() { return $("voice-overlay").classList.contains("on"); }
+function setVoiceOverlay(on) {
+  const ov = $("voice-overlay");
+  const was = voiceOverlayOn();
+  ov.classList.toggle("on", !!on);
+  if (on && !was) { refreshVoiceOverlay(); log("VOICE OVERLAY \u25b8 on", "ok"); }
+  if (!on && was) log("VOICE OVERLAY \u25b8 off");
+}
+/* Exit voice mode COMPLETELY: overlay closes AND the VOX chip unlights,
+   because the mode itself is switched off on the server. One tap on the
+   chip afterwards wakes it again - no double-tap needed. */
+async function exitVoiceMode() {
+  const chip = document.querySelector('.mchip[data-mode="voice"]');
+  if (modeBusy || !chip.classList.contains("active")) return;
+  modeBusy = true;
+  try {
+    const r = await fetch("/api/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "voice" })
+    });
+    const d = await r.json();
+    if (d.modes) syncModeChips(d.modes);
+    if (d.reply) addMsg(d.reply, "sys");
+    log("VOICE \u25b8 exited", "warn");
+  } catch (e) {
+    log("VOICE EXIT FAILED", "warn");
+  }
+  modeBusy = false;
+}
+function refreshVoiceOverlay() {
+  if (!voiceOverlayOn()) return;
+  const r = $("v-reactor");
+  const state = busy ? "thinking" : (micActive ? "listening" : "standby");
+  r.classList.remove("listening", "thinking", "idle");
+  r.classList.add(state === "thinking" ? "thinking"
+                : state === "listening" ? "listening" : "idle");
+  $("v-state").textContent = state === "thinking" ? "PROCESSING"
+                           : state === "listening" ? "LISTENING" : "FULL VOICE";
+}
+$("voice-overlay").addEventListener("click", e => {
+  if (e.target.id === "v-exit") return;
+  if (e.target.closest("#v-controls, #v-sound, #v-exit")) return;
+  if (!micActive && !busy) micCycle();       /* tap anywhere = talk */
+});
+$("v-sound").textContent = soundsOn ? "\uD83D\uDD0A SOUNDS ON" : "\uD83D\uDD07 SOUNDS OFF";
+$("v-sound").addEventListener("click", e => {
+  e.stopPropagation();
+  soundsOn = !soundsOn;
+  localStorage.setItem("phoenix_sounds", soundsOn ? "1" : "0");
+  $("v-sound").textContent = soundsOn ? "\uD83D\uDD0A SOUNDS ON" : "\uD83D\uDD07 SOUNDS OFF";
+  if (soundsOn) sfx.reply();
+});
+/* ---------- voice controls on the overlay (gender + wake word) ---------- */
+function syncVoiceControls(s) {
+  const g = s.voice_gender || "female";
+  $("v-gender-f").classList.toggle("sel", g === "female");
+  $("v-gender-m").classList.toggle("sel", g === "male");
+  const wakeOn = !!(s.whisper && s.whisper.running);
+  const w = $("v-wake");
+  w.classList.toggle("on", wakeOn);
+  w.textContent = wakeOn ? "\uD83C\uDF8E WAKE: ON" : "\uD83C\uDF8E WAKE: OFF";
+}
+async function setVoiceGender(gender) {
+  try {
+    const r = await fetch("/api/voice-gender", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gender: gender })
+    });
+    const d = await r.json();
+    if (d.reply) addMsg(d.reply, "sys");
+    log("VOICE \u25b8 " + gender, "ok");
+  } catch (e) { log("VOICE GENDER FAILED", "warn"); }
+  refreshStatus();
+}
+$("v-gender-f").addEventListener("click", e => {
+  e.stopPropagation(); setVoiceGender("female");
+});
+$("v-gender-m").addEventListener("click", e => {
+  e.stopPropagation(); setVoiceGender("male");
+});
+$("v-wake").addEventListener("click", async e => {
+  e.stopPropagation();
+  const turningOn = !e.target.classList.contains("on");
+  try {
+    const r = await fetch("/api/whisper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ on: turningOn })
+    });
+    const d = await r.json();
+    if (d.reply) addMsg(d.reply, "sys");
+    log("WAKE WORD \u25b8 " + (d.running ? "on" : "off"),
+        d.running ? "ok" : "warn");
+  } catch (err) { log("WAKE TOGGLE FAILED", "warn"); }
+  refreshStatus();
+});
+
+$("v-exit").addEventListener("click", e => {
+  e.stopPropagation();
+  exitVoiceMode();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") exitVoiceMode();
 });
 
 /* ---------- status polling ---------- */
@@ -606,7 +852,10 @@ async function refreshStatus() {
       const used = 100 - Math.round(100 * s.ram_free_gb / s.ram_total_gb);
       $("bar-ram").style.width = Math.max(4, Math.min(100, used)) + "%";
     }
-    if (Array.isArray(s.modes)) syncModeChips(s.modes);
+    if (Array.isArray(s.modes) && Date.now() - lastModeChange > 2500) {
+      syncModeChips(s.modes);
+    }
+    syncVoiceControls(s);
     // provider dropdown
     const sel = $("provider-select");
     if (sel.dataset.loaded !== "1" && s.providers) {
@@ -636,15 +885,25 @@ setInterval(refreshStatus, 5000);
 
 /* ---------- mode toggle chips ---------- */
 function syncModeChips(modes) {
+  const list = modes || [];
   document.querySelectorAll(".mchip").forEach(c => {
-    c.classList.toggle("active", (modes || []).includes(c.dataset.mode));
+    c.classList.toggle("active", list.includes(c.dataset.mode));
   });
+  /* DARK PHOENIX -> violet ghost theme */
+  document.body.classList.toggle("ghost", list.includes("darkphoenix"));
+  /* full voice mode -> fullscreen arc reactor (chip == overlay, always) */
+  setVoiceOverlay(list.includes("voice"));
 }
 
 document.querySelectorAll(".mchip").forEach(chip => {
   chip.addEventListener("click", async () => {
+    if (modeBusy) return;          /* ignore double-taps while a toggle runs */
+    modeBusy = true;
+    lastModeChange = Date.now();   /* tell the poller to back off */
     const mode = chip.dataset.mode;
+    const turningOn = !chip.classList.contains("active");
     chip.classList.toggle("active");
+    (turningOn ? sfx.modeOn : sfx.modeOff)();
     try {
       const r = await fetch("/api/mode", {
         method: "POST",
@@ -653,19 +912,22 @@ document.querySelectorAll(".mchip").forEach(chip => {
       });
       const d = await r.json();
       if (d.modes) syncModeChips(d.modes);
-      if (d.reply) { addMsg(d.reply, "sys"); log("MODE \u25b8 " + (d.modes || []).join("+") || "none", "ok"); }
+      if (d.reply) { addMsg(d.reply, "sys"); log("MODE \u25b8 " + ((d.modes || []).join("+") || "none"), "ok"); }
     } catch (e) { log("MODE SWITCH FAILED", "warn"); chip.classList.toggle("active"); }
+    lastModeChange = Date.now();
+    modeBusy = false;
   });
 });
 
 /* ---------- mic (Phoenix's own listener via the server) ---------- */
-let micActive = false;
 
 async function micCycle() {
   if (micActive || busy) return;
   micActive = true;
   $("mic-btn").classList.add("listening");
   $("reactor-state").textContent = "listening";
+  refreshVoiceOverlay();
+  sfx.listen();
   addMsg("(listening on your mic - speak now, up to ~8 s)", "sys");
   log("MIC ▸ listening...");
   try {
@@ -688,6 +950,7 @@ async function micCycle() {
   micActive = false;
   $("mic-btn").classList.remove("listening");
   if (!busy) $("reactor-state").textContent = "standby";
+  refreshVoiceOverlay();
   promptEl.focus();
 }
 
@@ -713,6 +976,21 @@ const bootTimer = setInterval(() => {
     promptEl.focus();
   }
 }, 420);
+
+/* ---------- replay conversation after a reload ---------- */
+(async function replayHistory() {
+  try {
+    const r = await fetch("/api/history");
+    const d = await r.json();
+    (d.messages || []).forEach(m => {
+      if (m.kind === "user") addMsg(m.text, "user");
+      else if (m.kind === "ai") addMsg(m.text, "ai");
+      else if (m.kind === "err") addMsg(m.text, "err");
+      else addMsg(m.text, "sys");
+    });
+    if ((d.messages || []).length) log("HISTORY \u25b8 restored " + d.messages.length, "ok");
+  } catch (e) { /* first run or core down - start empty */ }
+})();
 </script>
 </body>
 </html>
